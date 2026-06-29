@@ -26,6 +26,36 @@ class DeviceCreate(BaseModel):
     target_mac: str | None = None
 
 
+class Remote(BaseModel):
+    remote_id: str
+    name: str | None = None
+    remote_mac: str | None = None
+    target_mac: str | None = None
+    enabled: bool = True
+    firmware: str | None = None
+    last_seen: str | None = None
+    last_ip: str | None = None
+
+
+class RemoteCreate(BaseModel):
+    remote_id: str
+    name: str | None = None
+    remote_mac: str | None = None
+    target_mac: str | None = None
+    enabled: bool = True
+    firmware: str | None = None
+
+
+class RemoteBindRequest(BaseModel):
+    target_mac: str
+
+
+class RemoteUpdateRequest(BaseModel):
+    name: str | None = None
+    enabled: bool | None = None
+    target_mac: str | None = None
+
+
 class SetVpnRequest(BaseModel):
     vpn: bool
 
@@ -61,11 +91,15 @@ class HealthResponse(BaseModel):
     backend: BackendState
     devices_count: int
     managed_devices_count: int
+    remotes_count: int = 0
+    online_remotes_count: int = 0
 
 
 class WsInbound(BaseModel):
     type: Literal["hello", "ping", "get_state", "set_vpn", "toggle_vpn", "sync"]
     remote_id: str | None = None
+    remote_name: str | None = None
+    remote_mac: str | None = None
     target_mac: str | None = None
     token: str | None = None
     vpn: bool | None = None
@@ -78,8 +112,10 @@ class WsOutbound(BaseModel):
     message: str | None = None
     remote_id: str | None = None
     target_mac: str | None = None
+    remote: Remote | None = None
     state: DeviceState | None = None
     devices: list[Device] | None = None
+    remotes: list[Remote] | None = None
     backend: BackendState | None = None
 
 

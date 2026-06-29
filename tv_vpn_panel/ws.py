@@ -34,6 +34,9 @@ class ConnectionManager:
                 info.remote_id = remote_id
                 info.target_mac = target_mac.lower() if target_mac else None
 
+    def online_remotes_count(self) -> int:
+        return len({info.remote_id for info in self._info.values() if info.remote_id})
+
     async def disconnect(self, websocket: WebSocket) -> None:
         async with self._lock:
             self._clients.discard(websocket)

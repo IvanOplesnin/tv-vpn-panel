@@ -63,6 +63,7 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 # This file is intentionally outside the git checkout and is not overwritten by updates.
 
 TVVPN_DEVICES_FILE=/opt/tv-vpn-panel/devices.json
+TVVPN_REMOTES_FILE=/opt/tv-vpn-panel/remotes.json
 TVVPN_LEASES_FILE=/var/lib/misc/dnsmasq.leases
 TVVPN_TABLE_ID=200
 TVVPN_AP_INTERFACE=enx00e04c2a7a88

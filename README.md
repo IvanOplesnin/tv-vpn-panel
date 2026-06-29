@@ -17,6 +17,7 @@ This keeps runtime data outside the repository:
 
 - app code: `/opt/tv-vpn-panel-fastapi`
 - existing device state: `/opt/tv-vpn-panel/devices.json`
+- ESP32 remote bindings: `/opt/tv-vpn-panel/remotes.json`
 - local service settings/secrets: `/etc/default/tv-vpn-panel`
 - systemd unit: `/etc/systemd/system/tv-vpn-panel.service`
 
@@ -61,7 +62,14 @@ sudo nano /etc/default/tv-vpn-panel
 sudo systemctl restart tv-vpn-panel.service
 ```
 
-Example token:
+Example trusted LAN mode, no token required:
+
+```ini
+TVVPN_API_TOKEN=
+TVVPN_REMOTES_FILE=/opt/tv-vpn-panel/remotes.json
+```
+
+Example token, only if you later expose the panel outside a trusted LAN:
 
 ```ini
 TVVPN_API_TOKEN=change-me
@@ -115,12 +123,51 @@ curl -X POST http://192.168.50.1:8090/api/devices/b8:87:6e:4a:cd:2c/vpn \
 curl -X POST http://192.168.50.1:8090/api/devices/b8:87:6e:4a:cd:2c/toggle
 ```
 
+
+### ESP32 remotes
+
+List remotes:
+
+```bash
+curl http://192.168.50.1:8090/api/remotes
+```
+
+Add or update a remote binding:
+
+```bash
+curl -X POST http://192.168.50.1:8090/api/remotes \
+  -H 'Content-Type: application/json' \
+  -d '{"remote_id":"remote-bedroom-01","name":"Bedroom remote","target_mac":"b8:87:6e:4a:cd:2c"}'
+```
+
+Bind an existing remote to a TV:
+
+```bash
+curl -X POST http://192.168.50.1:8090/api/remotes/remote-bedroom-01/bind \
+  -H 'Content-Type: application/json' \
+  -d '{"target_mac":"b8:87:6e:4a:cd:2c"}'
+```
+
+Unbind a remote:
+
+```bash
+curl -X POST http://192.168.50.1:8090/api/remotes/remote-bedroom-01/unbind
+```
+
+Delete a remote:
+
+```bash
+curl -X DELETE http://192.168.50.1:8090/api/remotes/remote-bedroom-01
+```
+
+Remote bindings are stored separately from devices in `/opt/tv-vpn-panel/remotes.json`.
+
 ## WebSocket for ESP32
 
 Connect:
 
 ```text
-ws://192.168.50.1:8090/ws?target_mac=b8:87:6e:4a:cd:2c
+ws://192.168.50.1:8090/ws?remote_id=remote-bedroom-01
 ```
 
 Optional first message:
@@ -128,7 +175,9 @@ Optional first message:
 ```json
 {
   "type": "hello",
-  "remote_id": "remote-tv-station",
+  "remote_id": "remote-bedroom-01",
+  "remote_name": "Bedroom remote",
+  "remote_mac": "aa:bb:cc:dd:ee:ff",
   "target_mac": "b8:87:6e:4a:cd:2c",
   "firmware": "0.1.0"
 }
@@ -209,7 +258,7 @@ HTTP clients can send one of:
 WebSocket:
 
 ```text
-ws://192.168.50.1:8090/ws?target_mac=b8:87:6e:4a:cd:2c&token=change-me
+ws://192.168.50.1:8090/ws?remote_id=remote-bedroom-01&token=change-me
 ```
 
 ## Optional Docker run
@@ -228,6 +277,7 @@ The compose file uses `network_mode: host` and `NET_ADMIN`, because the panel mu
 | Name | Default | Meaning |
 |---|---:|---|
 | `TVVPN_DEVICES_FILE` | `/opt/tv-vpn-panel/devices.json` | Persistent devices file |
+| `TVVPN_REMOTES_FILE` | `/opt/tv-vpn-panel/remotes.json` | ESP32 remote bindings file |
 | `TVVPN_LEASES_FILE` | `/var/lib/misc/dnsmasq.leases` | dnsmasq leases file |
 | `TVVPN_TABLE_ID` | `200` | VPN policy routing table |
 | `TVVPN_AP_INTERFACE` | `enx00e04c2a7a88` | TV/AP interface for route probes |

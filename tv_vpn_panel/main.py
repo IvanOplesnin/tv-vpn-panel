@@ -16,6 +16,10 @@ from .models import (
     DeviceCreate,
     DeviceState,
     HealthResponse,
+    Remote,
+    RemoteBindRequest,
+    RemoteCreate,
+    RemoteUpdateRequest,
     SetVpnRequest,
     ToggleResponse,
     WsInbound,
@@ -23,14 +27,22 @@ from .models import (
 )
 from .store import (
     add_device,
+    add_or_update_remote,
     apply_all_rules,
+    bind_remote,
     delete_device,
+    delete_remote,
     find_device,
+    find_remote,
     load_devices,
+    load_remotes,
     managed_devices,
+    register_remote_seen,
     set_device_vpn,
     sync_devices_from_leases,
     toggle_device_vpn,
+    unbind_remote,
+    update_remote,
 )
 from .system_ops import get_backend_state, probe_device_route, refresh_backend_route
 from .ws import manager
@@ -61,7 +73,7 @@ async def broadcast_device(mac: str) -> None:
 async def sync_and_broadcast_all() -> None:
     devices = sync_devices_from_leases()
     backend = get_backend_state()
-    await manager.broadcast(WsOutbound(type="devices", devices=managed_devices(devices), backend=backend))
+    await manager.broadcast(WsOutbound(type="devices", devices=managed_devices(devices), remotes=load_remotes(), backend=backend))
     for device in managed_devices(devices):
         await manager.broadcast_state(build_device_state(device))
 
@@ -97,6 +109,10 @@ async def shutdown() -> None:
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
+    # Starlette 0.46+ expects the request object as the first positional
+    # argument. Older examples often used TemplateResponse("index.html", {...});
+    # with current FastAPI/Starlette that makes Jinja2 treat the context dict as
+    # the template name/cache key and can fail with: TypeError: unhashable type: 'dict'.
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -114,6 +130,8 @@ async def health(_: None = Depends(require_http_token)) -> HealthResponse:
         backend=get_backend_state(),
         devices_count=len(devices),
         managed_devices_count=len(managed_devices(devices)),
+        remotes_count=len(load_remotes()),
+        online_remotes_count=manager.online_remotes_count(),
     )
 
 
@@ -193,27 +211,129 @@ async def api_delete_device(mac: str, _: None = Depends(require_http_token)) -> 
     return ApiMessage(ok=True, message="deleted")
 
 
+@app.get("/api/remotes", response_model=list[Remote])
+async def api_remotes(_: None = Depends(require_http_token)) -> list[Remote]:
+    return load_remotes()
+
+
+@app.post("/api/remotes", response_model=Remote)
+async def api_add_remote(payload: RemoteCreate, _: None = Depends(require_http_token)) -> Remote:
+    try:
+        remote = await asyncio.to_thread(add_or_update_remote, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    await sync_and_broadcast_all()
+    return remote
+
+
+@app.get("/api/remotes/{remote_id}", response_model=Remote)
+async def api_remote(remote_id: str, _: None = Depends(require_http_token)) -> Remote:
+    remote = find_remote(remote_id)
+    if remote is None:
+        raise HTTPException(status_code=404, detail="remote not found")
+    return remote
+
+
+@app.patch("/api/remotes/{remote_id}", response_model=Remote)
+async def api_update_remote(
+    remote_id: str,
+    payload: RemoteUpdateRequest,
+    _: None = Depends(require_http_token),
+) -> Remote:
+    try:
+        remote = await asyncio.to_thread(update_remote, remote_id, payload)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="remote not found")
+    await sync_and_broadcast_all()
+    return remote
+
+
+@app.post("/api/remotes/{remote_id}/bind", response_model=Remote)
+async def api_bind_remote(
+    remote_id: str,
+    payload: RemoteBindRequest,
+    _: None = Depends(require_http_token),
+) -> Remote:
+    try:
+        remote = await asyncio.to_thread(bind_remote, remote_id, payload.target_mac)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    await sync_and_broadcast_all()
+    return remote
+
+
+@app.post("/api/remotes/{remote_id}/unbind", response_model=Remote)
+async def api_unbind_remote(remote_id: str, _: None = Depends(require_http_token)) -> Remote:
+    try:
+        remote = await asyncio.to_thread(unbind_remote, remote_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="remote not found")
+    await sync_and_broadcast_all()
+    return remote
+
+
+@app.delete("/api/remotes/{remote_id}", response_model=ApiMessage)
+async def api_delete_remote(remote_id: str, _: None = Depends(require_http_token)) -> ApiMessage:
+    removed = await asyncio.to_thread(delete_remote, remote_id)
+    await sync_and_broadcast_all()
+    if not removed:
+        raise HTTPException(status_code=404, detail="remote not found")
+    return ApiMessage(ok=True, message="deleted")
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     await require_ws_token(websocket)
     await manager.connect(websocket)
-    target_mac = websocket.query_params.get("target_mac")
+
+    target_mac = (websocket.query_params.get("target_mac") or "").lower() or None
     remote_id = websocket.query_params.get("remote_id")
+    remote = None
+
+    if remote_id:
+        try:
+            remote = await asyncio.to_thread(
+                register_remote_seen,
+                remote_id,
+                target_mac=target_mac,
+                last_ip=websocket.client.host if websocket.client else None,
+            )
+            target_mac = remote.target_mac.lower() if remote.target_mac and remote.enabled else None
+        except ValueError as exc:
+            await manager.send(websocket, WsOutbound(type="error", ok=False, message=str(exc)))
+
     await manager.register(websocket, remote_id=remote_id, target_mac=target_mac)
 
     if target_mac:
         device = find_device(target_mac)
         if device:
-            await manager.send(websocket, WsOutbound(type="state", state=build_device_state(device)))
+            await manager.send(websocket, WsOutbound(type="state", remote=remote, state=build_device_state(device)))
         else:
             await manager.send(
                 websocket,
-                WsOutbound(type="error", ok=False, message="target device not found", target_mac=target_mac),
+                WsOutbound(type="error", ok=False, message="target device not found", remote=remote, target_mac=target_mac),
             )
+    elif remote_id:
+        await manager.send(
+            websocket,
+            WsOutbound(
+                type="pairing_required",
+                ok=False,
+                message="remote is not bound to any TV",
+                remote_id=remote_id,
+                remote=remote,
+                backend=get_backend_state(),
+            ),
+        )
     else:
         await manager.send(
             websocket,
-            WsOutbound(type="devices", devices=managed_devices(load_devices()), backend=get_backend_state()),
+            WsOutbound(
+                type="devices",
+                devices=managed_devices(load_devices()),
+                remotes=load_remotes(),
+                backend=get_backend_state(),
+            ),
         )
 
     try:
@@ -223,10 +343,31 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             if inbound.type == "hello":
                 await require_ws_token(websocket, inbound.token)
-                if inbound.target_mac:
-                    target_mac = inbound.target_mac.lower()
                 if inbound.remote_id:
                     remote_id = inbound.remote_id
+
+                incoming_target_mac = inbound.target_mac.lower() if inbound.target_mac else None
+                if incoming_target_mac:
+                    target_mac = incoming_target_mac
+
+                if remote_id:
+                    try:
+                        remote = await asyncio.to_thread(
+                            register_remote_seen,
+                            remote_id,
+                            name=inbound.remote_name,
+                            remote_mac=inbound.remote_mac,
+                            target_mac=incoming_target_mac,
+                            firmware=inbound.firmware,
+                            last_ip=websocket.client.host if websocket.client else None,
+                        )
+                    except ValueError as exc:
+                        await manager.send(websocket, WsOutbound(type="error", ok=False, message=str(exc)))
+                        continue
+                    target_mac = remote.target_mac.lower() if remote.target_mac and remote.enabled else None
+                elif inbound.target_mac:
+                    target_mac = inbound.target_mac.lower()
+
                 await manager.register(websocket, remote_id=remote_id, target_mac=target_mac)
                 await manager.send(
                     websocket,
@@ -234,17 +375,43 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         type="hello_ok",
                         remote_id=remote_id,
                         target_mac=target_mac,
+                        remote=remote,
                         backend=get_backend_state(),
                     ),
                 )
+
                 if target_mac:
                     device = find_device(target_mac)
                     if device:
-                        await manager.send(websocket, WsOutbound(type="state", state=build_device_state(device)))
+                        await manager.send(websocket, WsOutbound(type="state", remote=remote, state=build_device_state(device)))
+                    else:
+                        await manager.send(
+                            websocket,
+                            WsOutbound(type="error", ok=False, message="target device not found", remote=remote, target_mac=target_mac),
+                        )
+                elif remote_id:
+                    await manager.send(
+                        websocket,
+                        WsOutbound(
+                            type="pairing_required",
+                            ok=False,
+                            message="remote is not bound to any TV",
+                            remote_id=remote_id,
+                            remote=remote,
+                        ),
+                    )
                 continue
 
             if inbound.type == "ping":
-                await manager.send(websocket, WsOutbound(type="pong", remote_id=remote_id, target_mac=target_mac))
+                if remote_id:
+                    remote = await asyncio.to_thread(
+                        register_remote_seen,
+                        remote_id,
+                        last_ip=websocket.client.host if websocket.client else None,
+                    )
+                    target_mac = remote.target_mac.lower() if remote.target_mac and remote.enabled else None
+                    await manager.register(websocket, remote_id=remote_id, target_mac=target_mac)
+                await manager.send(websocket, WsOutbound(type="pong", remote_id=remote_id, target_mac=target_mac, remote=remote))
                 continue
 
             if inbound.type == "sync":
@@ -253,9 +420,27 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 await sync_and_broadcast_all()
                 continue
 
-            effective_mac = (inbound.target_mac or target_mac or "").lower()
+            if inbound.target_mac:
+                effective_mac = inbound.target_mac.lower()
+            elif remote_id:
+                remote = find_remote(remote_id)
+                effective_mac = remote.target_mac.lower() if remote and remote.enabled and remote.target_mac else ""
+                target_mac = effective_mac or None
+                await manager.register(websocket, remote_id=remote_id, target_mac=target_mac)
+            else:
+                effective_mac = target_mac or ""
+
             if not effective_mac:
-                await manager.send(websocket, WsOutbound(type="error", ok=False, message="target_mac is required"))
+                await manager.send(
+                    websocket,
+                    WsOutbound(
+                        type="pairing_required",
+                        ok=False,
+                        message="remote is not bound to any TV" if remote_id else "target_mac is required",
+                        remote_id=remote_id,
+                        remote=remote,
+                    ),
+                )
                 continue
 
             if inbound.type == "get_state":
@@ -263,7 +448,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 if not device:
                     await manager.send(websocket, WsOutbound(type="error", ok=False, message="device not found"))
                     continue
-                await manager.send(websocket, WsOutbound(type="state", state=build_device_state(device)))
+                await manager.send(websocket, WsOutbound(type="state", remote=remote, state=build_device_state(device)))
                 continue
 
             if inbound.type == "set_vpn":

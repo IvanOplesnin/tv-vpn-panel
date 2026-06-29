@@ -8,21 +8,22 @@
     :root { color-scheme: dark; }
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      max-width: 1100px;
+      max-width: 1200px;
       margin: 30px auto;
       padding: 0 16px;
       background: #111;
       color: #eee;
     }
     h1 { margin-bottom: 6px; }
+    h2 { margin: 0 0 12px; }
     .hint { color: #aaa; margin-bottom: 20px; line-height: 1.45; }
-    .toolbar, .add { background: #1b1b1b; border-radius: 12px; padding: 14px; margin: 14px 0; }
+    .toolbar, .add, .section { background: #1b1b1b; border-radius: 12px; padding: 14px; margin: 14px 0; }
     .backend { font-weight: 700; }
-    table { width: 100%; border-collapse: collapse; background: #1b1b1b; border-radius: 12px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; background: #1b1b1b; border-radius: 12px; overflow: hidden; margin: 12px 0 24px; }
     th, td { padding: 12px; border-bottom: 1px solid #333; text-align: left; vertical-align: middle; }
     th { background: #222; }
     button { padding: 8px 14px; border: 0; border-radius: 8px; cursor: pointer; font-weight: 700; margin: 2px; }
-    input, select { padding: 8px; border-radius: 8px; border: 1px solid #555; background: #222; color: #eee; margin: 4px 0; }
+    input, select { padding: 8px; border-radius: 8px; border: 1px solid #555; background: #222; color: #eee; margin: 4px 0; min-width: 220px; }
     .on { background: #2ecc71; color: #041b0d; }
     .off { background: #e67e22; color: #211000; }
     .delete { background: #e74c3c; color: white; }
@@ -31,15 +32,19 @@
     .status-on { color: #2ecc71; font-weight: 700; }
     .status-off { color: #e67e22; font-weight: 700; }
     .status-bad { color: #e74c3c; font-weight: 700; }
+    .status-warn { color: #f1c40f; font-weight: 700; }
     .pill { display: inline-block; padding: 3px 8px; border-radius: 999px; background: #2a2a2a; }
     .ws-ok { color: #2ecc71; }
     .ws-bad { color: #e74c3c; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    code { background: #222; padding: 2px 5px; border-radius: 5px; }
     @media (max-width: 760px) {
       table, thead, tbody, th, td, tr { display: block; }
       th { display: none; }
       tr { border-bottom: 1px solid #333; padding: 10px; }
       td { border: 0; padding: 6px 0; }
       td::before { content: attr(data-label); color: #aaa; display: block; font-size: 0.82em; }
+      input, select { min-width: 0; width: 100%; }
     }
   </style>
 </head>
@@ -52,7 +57,7 @@
   <div class="toolbar">
     <div>WebSocket: <span id="wsStatus" class="ws-bad">не подключён</span></div>
     <div>Backend: <span id="backend" class="backend">...</span></div>
-    <button class="secondary" onclick="loadDevices()">Обновить</button>
+    <button class="secondary" onclick="loadAll()">Обновить всё</button>
     <button class="secondary" onclick="syncDevices()">Sync leases + apply rules</button>
   </div>
 
@@ -63,31 +68,67 @@
   </div>
   {% endif %}
 
-  <table>
-    <thead>
-      <tr>
-        <th>Название</th>
-        <th>IP</th>
-        <th>MAC</th>
-        <th>Режим</th>
-        <th>Backend/rule</th>
-        <th>Действие</th>
-      </tr>
-    </thead>
-    <tbody id="devicesBody"></tbody>
-  </table>
+  <div class="section">
+    <h2>Телевизоры / управляемые устройства</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Название</th>
+          <th>IP</th>
+          <th>MAC</th>
+          <th>Режим</th>
+          <th>Backend/rule</th>
+          <th>Действие</th>
+        </tr>
+      </thead>
+      <tbody id="devicesBody"></tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>ESP32-пульты</h2>
+    <div class="hint">
+      Пульт может быть в другой Wi-Fi сети. Он регистрируется по <code>remote_id</code>, а привязка хранится здесь: <code>remote_id → MAC телевизора</code>.
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Пульт</th>
+          <th>remote_id</th>
+          <th>Статус</th>
+          <th>Управляет</th>
+          <th>Последний раз</th>
+          <th>Действие</th>
+        </tr>
+      </thead>
+      <tbody id="remotesBody"></tbody>
+    </table>
+  </div>
 
   <div class="add">
-    <h2>Ручное добавление</h2>
-    <input id="name" placeholder="Название" required>
-    <input id="ip" placeholder="IP, например 192.168.50.200" required>
-    <input id="mac" placeholder="MAC, можно пустым">
-    <select id="type">
-      <option value="tv">TV / управляемое устройство</option>
-      <option value="remote">ESP32 remote</option>
-    </select>
-    <input id="targetMac" placeholder="target_mac для remote">
-    <button class="on" onclick="addDevice()">Добавить</button>
+    <h2>Ручное добавление устройства</h2>
+    <div class="row">
+      <input id="name" placeholder="Название" required>
+      <input id="ip" placeholder="IP, например 192.168.50.200" required>
+      <input id="mac" placeholder="MAC, можно пустым">
+      <select id="type">
+        <option value="tv">TV / управляемое устройство</option>
+        <option value="remote">ESP32 remote в devices.json (старый вариант)</option>
+      </select>
+      <input id="targetMac" placeholder="target_mac для remote">
+      <button class="on" onclick="addDevice()">Добавить</button>
+    </div>
+  </div>
+
+  <div class="add">
+    <h2>Ручное добавление ESP32-пульта</h2>
+    <div class="row">
+      <input id="remoteId" placeholder="remote_id, например remote-bedroom-01">
+      <input id="remoteName" placeholder="Название пульта">
+      <input id="remoteMac" placeholder="MAC ESP32, можно пустым">
+      <select id="remoteTarget"></select>
+      <button class="on" onclick="addRemote()">Добавить / обновить</button>
+    </div>
   </div>
 
 <script>
@@ -95,6 +136,7 @@ const apiTokenEnabled = {{ "true" if api_token_enabled else "false" }};
 let ws = null;
 let states = new Map();
 let devices = [];
+let remotes = [];
 
 function token() {
   return localStorage.getItem('tvvpn_api_token') || '';
@@ -106,7 +148,7 @@ function authHeaders() {
 function saveToken() {
   const el = document.getElementById('apiToken');
   localStorage.setItem('tvvpn_api_token', el.value);
-  loadDevices();
+  loadAll();
   connectWs();
 }
 async function api(path, options={}) {
@@ -123,7 +165,27 @@ function backendText(b) {
 function setBackend(b) {
   document.getElementById('backend').textContent = backendText(b);
 }
-function render() {
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+}
+function deviceNameByMac(mac) {
+  if (!mac) return '';
+  const d = devices.find(x => x.mac.toLowerCase() === mac.toLowerCase());
+  return d ? `${d.name} (${d.mac})` : mac;
+}
+function renderTargetSelect(selectId, selected='') {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  select.innerHTML = '<option value="">Не привязан</option>';
+  for (const d of devices) {
+    const opt = document.createElement('option');
+    opt.value = d.mac;
+    opt.textContent = `${d.name} — ${d.ip} — ${d.mac}`;
+    if (selected && d.mac.toLowerCase() === selected.toLowerCase()) opt.selected = true;
+    select.appendChild(opt);
+  }
+}
+function renderDevices() {
   const body = document.getElementById('devicesBody');
   body.innerHTML = '';
   for (const d of devices) {
@@ -152,12 +214,40 @@ function render() {
     body.appendChild(tr);
   }
 }
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+function renderRemotes() {
+  const body = document.getElementById('remotesBody');
+  body.innerHTML = '';
+  for (const r of remotes) {
+    const target = r.target_mac ? deviceNameByMac(r.target_mac) : '<span class="status-warn">не привязан</span>';
+    const enabled = r.enabled ? '<span class="status-on">enabled</span>' : '<span class="status-bad">disabled</span>';
+    const selectId = `bind-${r.remote_id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td data-label="Пульт">${escapeHtml(r.name || r.remote_id)}<br><span class="small">${escapeHtml(r.firmware || '')} ${escapeHtml(r.remote_mac || '')}</span></td>
+      <td data-label="remote_id" class="small">${escapeHtml(r.remote_id)}</td>
+      <td data-label="Статус">${enabled}</td>
+      <td data-label="Управляет">${target}</td>
+      <td data-label="Последний раз"><span class="small">${escapeHtml(r.last_seen || '—')} ${escapeHtml(r.last_ip || '')}</span></td>
+      <td data-label="Действие">
+        <select id="${selectId}"></select>
+        <button class="on" onclick="bindRemote('${r.remote_id}', '${selectId}')">Привязать</button>
+        <button class="secondary" onclick="unbindRemote('${r.remote_id}')">Отвязать</button>
+        <button class="delete" onclick="deleteRemote('${r.remote_id}')">Удалить</button>
+      </td>
+    `;
+    body.appendChild(tr);
+    renderTargetSelect(selectId, r.target_mac || '');
+  }
+  renderTargetSelect('remoteTarget');
 }
-async function loadDevices() {
+function render() {
+  renderDevices();
+  renderRemotes();
+}
+async function loadAll() {
   try {
     devices = await api('/api/devices');
+    remotes = await api('/api/remotes');
     for (const d of devices) await loadState(d.mac, false);
     render();
   } catch (e) { alert(e.message); }
@@ -172,7 +262,7 @@ async function loadState(mac, redraw=true) {
 }
 async function syncDevices() {
   devices = await api('/api/devices/sync', {method:'POST'});
-  await loadDevices();
+  await loadAll();
 }
 async function setVpn(mac, vpn) {
   const res = await api(`/api/devices/${encodeURIComponent(mac)}/vpn`, {method:'POST', body: JSON.stringify({vpn})});
@@ -189,12 +279,38 @@ async function addDevice() {
     target_mac: document.getElementById('targetMac').value || null,
   };
   await api('/api/devices', {method:'POST', body: JSON.stringify(payload)});
-  await loadDevices();
+  await loadAll();
 }
 async function deleteDevice(mac) {
   if (!confirm('Удалить устройство?')) return;
   await api(`/api/devices/${encodeURIComponent(mac)}`, {method:'DELETE'});
-  await loadDevices();
+  await loadAll();
+}
+async function addRemote() {
+  const payload = {
+    remote_id: document.getElementById('remoteId').value,
+    name: document.getElementById('remoteName').value || null,
+    remote_mac: document.getElementById('remoteMac').value || null,
+    target_mac: document.getElementById('remoteTarget').value || null,
+    enabled: true,
+  };
+  await api('/api/remotes', {method:'POST', body: JSON.stringify(payload)});
+  await loadAll();
+}
+async function bindRemote(remoteId, selectId) {
+  const target = document.getElementById(selectId).value;
+  if (!target) return await unbindRemote(remoteId);
+  await api(`/api/remotes/${encodeURIComponent(remoteId)}/bind`, {method:'POST', body: JSON.stringify({target_mac: target})});
+  await loadAll();
+}
+async function unbindRemote(remoteId) {
+  await api(`/api/remotes/${encodeURIComponent(remoteId)}/unbind`, {method:'POST'});
+  await loadAll();
+}
+async function deleteRemote(remoteId) {
+  if (!confirm('Удалить пульт?')) return;
+  await api(`/api/remotes/${encodeURIComponent(remoteId)}`, {method:'DELETE'});
+  await loadAll();
 }
 function connectWs() {
   if (ws) ws.close();
@@ -207,19 +323,25 @@ function connectWs() {
   ws.onmessage = (event) => {
     const msg = JSON.parse(event.data);
     if (msg.backend) setBackend(msg.backend);
-    if (msg.devices) { devices = msg.devices; render(); }
+    if (msg.devices) { devices = msg.devices; }
+    if (msg.remotes) { remotes = msg.remotes; }
+    if (msg.remote) {
+      const idx = remotes.findIndex(r => r.remote_id === msg.remote.remote_id);
+      if (idx >= 0) remotes[idx] = msg.remote;
+      else remotes.push(msg.remote);
+    }
     if (msg.state) {
       states.set(msg.state.device.mac.toLowerCase(), msg.state);
       const idx = devices.findIndex(d => d.mac.toLowerCase() === msg.state.device.mac.toLowerCase());
       if (idx >= 0) devices[idx] = msg.state.device;
       else devices.push(msg.state.device);
       setBackend(msg.state.backend);
-      render();
     }
+    render();
   };
 }
 
-loadDevices();
+loadAll();
 connectWs();
 </script>
 </body>

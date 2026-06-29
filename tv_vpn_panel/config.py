@@ -23,6 +23,7 @@ class Settings:
     route_test_ip: str = os.getenv("TVVPN_ROUTE_TEST_IP", "8.8.8.8")
 
     devices_file: Path = Path(os.getenv("TVVPN_DEVICES_FILE", "/opt/tv-vpn-panel/devices.json"))
+    remotes_file: Path = Path(os.getenv("TVVPN_REMOTES_FILE", "/opt/tv-vpn-panel/remotes.json"))
     leases_file: Path = Path(os.getenv("TVVPN_LEASES_FILE", "/var/lib/misc/dnsmasq.leases"))
     backend_switch_script: Path = Path(
         os.getenv("TVVPN_BACKEND_SWITCH_SCRIPT", "/usr/local/sbin/vpn-backend-switch.sh")
