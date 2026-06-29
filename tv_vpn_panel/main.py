@@ -98,9 +98,9 @@ async def shutdown() -> None:
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
+        request,
         "index.html",
         {
-            "request": request,
             "api_token_enabled": bool(settings.api_token),
         },
     )
