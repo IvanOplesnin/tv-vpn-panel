@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>TV VPN Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 1100px;
+      margin: 30px auto;
+      padding: 0 16px;
+      background: #111;
+      color: #eee;
+    }
+    h1 { margin-bottom: 6px; }
+    .hint { color: #aaa; margin-bottom: 20px; line-height: 1.45; }
+    .toolbar, .add { background: #1b1b1b; border-radius: 12px; padding: 14px; margin: 14px 0; }
+    .backend { font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; background: #1b1b1b; border-radius: 12px; overflow: hidden; }
+    th, td { padding: 12px; border-bottom: 1px solid #333; text-align: left; vertical-align: middle; }
+    th { background: #222; }
+    button { padding: 8px 14px; border: 0; border-radius: 8px; cursor: pointer; font-weight: 700; margin: 2px; }
+    input, select { padding: 8px; border-radius: 8px; border: 1px solid #555; background: #222; color: #eee; margin: 4px 0; }
+    .on { background: #2ecc71; color: #041b0d; }
+    .off { background: #e67e22; color: #211000; }
+    .delete { background: #e74c3c; color: white; }
+    .secondary { background: #555; color: #fff; }
+    .small { color: #999; font-size: 0.9em; }
+    .status-on { color: #2ecc71; font-weight: 700; }
+    .status-off { color: #e67e22; font-weight: 700; }
+    .status-bad { color: #e74c3c; font-weight: 700; }
+    .pill { display: inline-block; padding: 3px 8px; border-radius: 999px; background: #2a2a2a; }
+    .ws-ok { color: #2ecc71; }
+    .ws-bad { color: #e74c3c; }
+    @media (max-width: 760px) {
+      table, thead, tbody, th, td, tr { display: block; }
+      th { display: none; }
+      tr { border-bottom: 1px solid #333; padding: 10px; }
+      td { border: 0; padding: 6px 0; }
+      td::before { content: attr(data-label); color: #aaa; display: block; font-size: 0.82em; }
+    }
+  </style>
+</head>
+<body>
+  <h1>TV VPN Panel</h1>
+  <div class="hint">
+    FastAPI/WebSocket версия панели. VPN включается для устройства через <code>ip rule from DEVICE_IP lookup 200</code>; backend выбирается отдельной таблицей маршрутизации.
+  </div>
+
+  <div class="toolbar">
+    <div>WebSocket: <span id="wsStatus" class="ws-bad">не подключён</span></div>
+    <div>Backend: <span id="backend" class="backend">...</span></div>
+    <button class="secondary" onclick="loadDevices()">Обновить</button>
+    <button class="secondary" onclick="syncDevices()">Sync leases + apply rules</button>
+  </div>
+
+  {% if api_token_enabled %}
+  <div class="toolbar">
+    <label>API token для браузера: <input id="apiToken" placeholder="token" type="password"></label>
+    <button class="secondary" onclick="saveToken()">Сохранить в браузере</button>
+  </div>
+  {% endif %}
+
+  <table>
+    <thead>
+      <tr>
+        <th>Название</th>
+        <th>IP</th>
+        <th>MAC</th>
+        <th>Режим</th>
+        <th>Backend/rule</th>
+        <th>Действие</th>
+      </tr>
+    </thead>
+    <tbody id="devicesBody"></tbody>
+  </table>
+
+  <div class="add">
+    <h2>Ручное добавление</h2>
+    <input id="name" placeholder="Название" required>
+    <input id="ip" placeholder="IP, например 192.168.50.200" required>
+    <input id="mac" placeholder="MAC, можно пустым">
+    <select id="type">
+      <option value="tv">TV / управляемое устройство</option>
+      <option value="remote">ESP32 remote</option>
+    </select>
+    <input id="targetMac" placeholder="target_mac для remote">
+    <button class="on" onclick="addDevice()">Добавить</button>
+  </div>
+
+<script>
+const apiTokenEnabled = {{ "true" if api_token_enabled else "false" }};
+let ws = null;
+let states = new Map();
+let devices = [];
+
+function token() {
+  return localStorage.getItem('tvvpn_api_token') || '';
+}
+function authHeaders() {
+  const t = token();
+  return t ? {'X-API-Token': t, 'Content-Type': 'application/json'} : {'Content-Type': 'application/json'};
+}
+function saveToken() {
+  const el = document.getElementById('apiToken');
+  localStorage.setItem('tvvpn_api_token', el.value);
+  loadDevices();
+  connectWs();
+}
+async function api(path, options={}) {
+  const url = token() ? `${path}?token=${encodeURIComponent(token())}` : path;
+  const res = await fetch(url, {...options, headers: {...authHeaders(), ...(options.headers || {})}});
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+function backendText(b) {
+  if (!b) return 'unknown';
+  if (!b.table_has_default) return 'none / no default route';
+  return `${b.active} (${b.default_route || 'no route'})`;
+}
+function setBackend(b) {
+  document.getElementById('backend').textContent = backendText(b);
+}
+function render() {
+  const body = document.getElementById('devicesBody');
+  body.innerHTML = '';
+  for (const d of devices) {
+    const s = states.get(d.mac.toLowerCase());
+    const mode = d.vpn
+      ? '<span class="status-on">VPN ON</span>'
+      : '<span class="status-off">DIRECT</span>';
+    const runtime = s && s.runtime
+      ? `${s.runtime.rule_present ? 'rule: yes' : 'rule: no'}${s.runtime.route_probe ? '<br><span class="small">' + escapeHtml(s.runtime.route_probe) + '</span>' : ''}`
+      : '<span class="small">...</span>';
+    const backend = s && s.backend ? backendText(s.backend) : '...';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td data-label="Название">${escapeHtml(d.name)} <span class="pill small">${escapeHtml(d.type || 'tv')}</span></td>
+      <td data-label="IP">${escapeHtml(d.ip)}</td>
+      <td data-label="MAC" class="small">${escapeHtml(d.mac)}</td>
+      <td data-label="Режим">${mode}</td>
+      <td data-label="Backend/rule"><div>${escapeHtml(backend)}</div><div class="small">${runtime}</div></td>
+      <td data-label="Действие">
+        <button class="on" onclick="setVpn('${d.mac}', true)">VPN ON</button>
+        <button class="off" onclick="setVpn('${d.mac}', false)">DIRECT</button>
+        <button class="secondary" onclick="loadState('${d.mac}')">State</button>
+        <button class="delete" onclick="deleteDevice('${d.mac}')">Удалить</button>
+      </td>
+    `;
+    body.appendChild(tr);
+  }
+}
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+}
+async function loadDevices() {
+  try {
+    devices = await api('/api/devices');
+    for (const d of devices) await loadState(d.mac, false);
+    render();
+  } catch (e) { alert(e.message); }
+}
+async function loadState(mac, redraw=true) {
+  const s = await api(`/api/devices/${encodeURIComponent(mac)}`);
+  states.set(mac.toLowerCase(), s);
+  setBackend(s.backend);
+  const idx = devices.findIndex(d => d.mac.toLowerCase() === mac.toLowerCase());
+  if (idx >= 0) devices[idx] = s.device;
+  if (redraw) render();
+}
+async function syncDevices() {
+  devices = await api('/api/devices/sync', {method:'POST'});
+  await loadDevices();
+}
+async function setVpn(mac, vpn) {
+  const res = await api(`/api/devices/${encodeURIComponent(mac)}/vpn`, {method:'POST', body: JSON.stringify({vpn})});
+  const idx = devices.findIndex(d => d.mac.toLowerCase() === mac.toLowerCase());
+  if (idx >= 0) devices[idx] = res.device;
+  await loadState(mac);
+}
+async function addDevice() {
+  const payload = {
+    name: document.getElementById('name').value,
+    ip: document.getElementById('ip').value,
+    mac: document.getElementById('mac').value || null,
+    type: document.getElementById('type').value,
+    target_mac: document.getElementById('targetMac').value || null,
+  };
+  await api('/api/devices', {method:'POST', body: JSON.stringify(payload)});
+  await loadDevices();
+}
+async function deleteDevice(mac) {
+  if (!confirm('Удалить устройство?')) return;
+  await api(`/api/devices/${encodeURIComponent(mac)}`, {method:'DELETE'});
+  await loadDevices();
+}
+function connectWs() {
+  if (ws) ws.close();
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const q = token() ? `?token=${encodeURIComponent(token())}` : '';
+  ws = new WebSocket(`${proto}//${location.host}/ws${q}`);
+  ws.onopen = () => { document.getElementById('wsStatus').textContent = 'подключён'; document.getElementById('wsStatus').className = 'ws-ok'; };
+  ws.onclose = () => { document.getElementById('wsStatus').textContent = 'не подключён'; document.getElementById('wsStatus').className = 'ws-bad'; setTimeout(connectWs, 3000); };
+  ws.onerror = () => { document.getElementById('wsStatus').textContent = 'ошибка'; document.getElementById('wsStatus').className = 'ws-bad'; };
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.backend) setBackend(msg.backend);
+    if (msg.devices) { devices = msg.devices; render(); }
+    if (msg.state) {
+      states.set(msg.state.device.mac.toLowerCase(), msg.state);
+      const idx = devices.findIndex(d => d.mac.toLowerCase() === msg.state.device.mac.toLowerCase());
+      if (idx >= 0) devices[idx] = msg.state.device;
+      else devices.push(msg.state.device);
+      setBackend(msg.state.backend);
+      render();
+    }
+  };
+}
+
+loadDevices();
+connectWs();
+</script>
+</body>
+</html>

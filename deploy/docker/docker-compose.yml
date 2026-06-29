@@ -1,0 +1,20 @@
+services:
+  tv-vpn-panel:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    container_name: tv-vpn-panel
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    environment:
+      TVVPN_DEVICES_FILE: /data/devices.json
+      TVVPN_LEASES_FILE: /var/lib/misc/dnsmasq.leases
+      TVVPN_TABLE_ID: "200"
+      TVVPN_AP_INTERFACE: enx00e04c2a7a88
+      # Set before exposing outside trusted LAN:
+      # TVVPN_API_TOKEN: change-me
+    volumes:
+      - /opt/tv-vpn-panel:/data
+      - /var/lib/misc/dnsmasq.leases:/var/lib/misc/dnsmasq.leases:ro
