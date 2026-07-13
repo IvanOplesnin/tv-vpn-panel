@@ -81,6 +81,33 @@ Docker is possible, but the first production version should run directly under s
 
 Reason: this service changes host `ip rule` state. A Docker version needs `network_mode: host`, `NET_ADMIN`, bind mounts for `devices.json` and `dnsmasq.leases`, and careful handling of host networking. The systemd version is simpler and closer to the current Flask app.
 
+## Local dry-run development
+
+For local UI/API testing on a development machine, enable dry-run mode. In this mode the app still updates its JSON state, but skips commands that mutate host network state:
+
+- `ip rule del ...`
+- `ip rule add ...`
+- backend switch script execution from `/api/backend/refresh`
+
+Read-only probes like `ip rule` and `ip route show/get` may still run so the status page can display local runtime information.
+
+```bash
+TVVPN_DRY_RUN=true \
+TVVPN_DEVICES_FILE=/tmp/tvvpn-devices.json \
+TVVPN_REMOTES_FILE=/tmp/tvvpn-remotes.json \
+TVVPN_LEASES_FILE=/tmp/tvvpn-empty-leases \
+TVVPN_ENABLE_PERIODIC_SYNC=false \
+TVVPN_API_TOKEN= \
+.venv/bin/uvicorn tv_vpn_panel.main:app --reload --host 127.0.0.1 --port 8090
+```
+
+Open:
+
+```text
+http://127.0.0.1:8090/
+http://127.0.0.1:8090/docs
+```
+
 ## API
 
 ### Health

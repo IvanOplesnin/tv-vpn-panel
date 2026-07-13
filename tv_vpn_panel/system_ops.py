@@ -31,12 +31,16 @@ def rule_priority(ip: str) -> str:
 
 
 def disable_vpn_rule(ip: str) -> None:
+    if settings.dry_run:
+        return
     # Delete several times in case duplicate rules were created earlier.
     for _ in range(5):
         safe_run(["ip", "rule", "del", "from", f"{ip}/32", "lookup", settings.table_id], timeout=2.0)
 
 
 def enable_vpn_rule(ip: str) -> None:
+    if settings.dry_run:
+        return
     disable_vpn_rule(ip)
     safe_run(
         [
@@ -140,6 +144,8 @@ def probe_device_route(ip: str) -> DeviceRuntimeState:
 
 def refresh_backend_route() -> tuple[bool, str]:
     script: Path = settings.backend_switch_script
+    if settings.dry_run:
+        return True, "dry run: backend refresh skipped"
     if not settings.allow_backend_refresh:
         return False, "backend refresh is disabled; existing timer/service should switch table 200"
     if not script.exists():

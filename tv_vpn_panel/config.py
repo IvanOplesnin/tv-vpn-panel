@@ -36,6 +36,10 @@ class Settings:
     poll_interval_seconds: float = float(os.getenv("TVVPN_POLL_INTERVAL", "10"))
     enable_periodic_sync: bool = _bool_env("TVVPN_ENABLE_PERIODIC_SYNC", True)
 
+    # Local development/testing mode. When enabled, commands that mutate host
+    # network state are skipped, while read-only route probes still run.
+    dry_run: bool = _bool_env("TVVPN_DRY_RUN", False)
+
     # Running the backend switch script from the API is optional; the existing timer may do it already.
     allow_backend_refresh: bool = _bool_env("TVVPN_ALLOW_BACKEND_REFRESH", False)
 

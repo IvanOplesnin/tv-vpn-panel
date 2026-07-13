@@ -14,6 +14,7 @@ services:
       TVVPN_LEASES_FILE: /var/lib/misc/dnsmasq.leases
       TVVPN_TABLE_ID: "200"
       TVVPN_AP_INTERFACE: enx00e04c2a7a88
+      TVVPN_DRY_RUN: "false"
       # Set before exposing outside trusted LAN:
       # TVVPN_API_TOKEN: change-me
     volumes:

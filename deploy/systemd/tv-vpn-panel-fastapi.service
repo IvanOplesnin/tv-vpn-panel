@@ -14,6 +14,7 @@ Environment=TVVPN_TABLE_ID=200
 Environment=TVVPN_AP_INTERFACE=enx00e04c2a7a88
 Environment=TVVPN_HOST=0.0.0.0
 Environment=TVVPN_PORT=8090
+Environment=TVVPN_DRY_RUN=false
 # Put local secrets/settings here. This file is not overwritten by git updates.
 EnvironmentFile=-/etc/default/tv-vpn-panel
 ExecStart=/opt/tv-vpn-panel-fastapi/.venv/bin/uvicorn tv_vpn_panel.main:app --host ${TVVPN_HOST} --port ${TVVPN_PORT}
