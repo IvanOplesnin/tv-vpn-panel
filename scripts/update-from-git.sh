@@ -26,6 +26,7 @@ fi
 git -C "${APP_DIR}" fetch origin "${BRANCH}"
 git -C "${APP_DIR}" checkout "${BRANCH}" || git -C "${APP_DIR}" checkout -B "${BRANCH}" "origin/${BRANCH}"
 git -C "${APP_DIR}" reset --hard "origin/${BRANCH}"
+rm -rf "${APP_DIR}/.idea"
 
 "${APP_DIR}/.venv/bin/pip" install --upgrade pip || python3 -m venv "${APP_DIR}/.venv"
 "${APP_DIR}/.venv/bin/pip" install -r "${APP_DIR}/requirements.txt"

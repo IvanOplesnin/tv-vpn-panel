@@ -15,9 +15,11 @@ fi
 mkdir -p "${APP_DIR}"
 rsync -a --delete \
   --exclude '.git/' \
+  --exclude '.idea/' \
   --exclude '.venv/' \
   --exclude '__pycache__/' \
   ./ "${APP_DIR}/"
+rm -rf "${APP_DIR}/.idea"
 
 python3 -m venv "${APP_DIR}/.venv"
 "${APP_DIR}/.venv/bin/pip" install --upgrade pip
