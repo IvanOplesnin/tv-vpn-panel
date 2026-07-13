@@ -49,6 +49,7 @@ class Device(BaseModel):
     mac: str
     vpn: bool = False
     type: DeviceType = DeviceType.TV
+    pinned: bool = False
     name_override: bool = False
     lease_name: str | None = None
     lease_expiry: str | None = None
@@ -64,6 +65,7 @@ class DeviceCreate(BaseModel):
 class DeviceUpdate(BaseModel):
     name: str | None = None
     type: DeviceType | None = None
+    pinned: bool | None = None
 
 
 class Remote(BaseModel):

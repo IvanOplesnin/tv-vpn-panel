@@ -139,10 +139,10 @@ curl http://192.168.50.1:8090/api/devices/b8:87:6e:4a:cd:2c
 ```bash
 curl -X PATCH http://192.168.50.1:8090/api/devices/b8:87:6e:4a:cd:2c \
   -H 'Content-Type: application/json' \
-  -d '{"name": "Bedroom TV", "type": "tv"}'
+  -d '{"name": "Bedroom TV", "type": "tv", "pinned": true}'
 ```
 
-Custom device names are preserved across DHCP lease syncs.
+Custom device names are preserved across DHCP lease syncs. Pinned devices are shown first in the panel.
 
 ### Enable VPN
 

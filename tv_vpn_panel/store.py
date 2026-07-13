@@ -389,7 +389,8 @@ def sync_devices_from_leases() -> list[Device]:
 def managed_devices(devices: list[Device] | None = None) -> list[Device]:
     devices = devices if devices is not None else load_devices()
     remote_macs = _remote_macs()
-    return [d for d in devices if _normal_mac(d.mac) not in remote_macs]
+    visible_devices = [d for d in devices if _normal_mac(d.mac) not in remote_macs]
+    return sorted(visible_devices, key=lambda device: not device.pinned)
 
 
 def find_device(mac: str, devices: list[Device] | None = None) -> Device | None:
@@ -445,6 +446,9 @@ def update_device(mac: str, payload: DeviceUpdate) -> Device:
     if payload.type is not None:
         device.type = payload.type
 
+    if payload.pinned is not None:
+        device.pinned = payload.pinned
+
     save_devices(devices)
     return device
 
@@ -489,7 +493,5 @@ def toggle_device_vpn(mac: str) -> Device:
 def apply_all_rules() -> list[Device]:
     devices = sync_devices_from_leases()
     for device in devices:
-        if device.type == "remote":
-            continue
         apply_device_rule(device.ip, device.vpn)
     return devices
