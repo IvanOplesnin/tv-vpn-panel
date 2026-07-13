@@ -23,6 +23,7 @@
     th, td { padding: 12px; border-bottom: 1px solid #333; text-align: left; vertical-align: middle; }
     th { background: #222; }
     button { padding: 8px 14px; border: 0; border-radius: 8px; cursor: pointer; font-weight: 700; margin: 2px; }
+    button:disabled { cursor: default; opacity: 0.45; }
     input, select { padding: 8px; border-radius: 8px; border: 1px solid #555; background: #222; color: #eee; margin: 4px 0; min-width: 220px; }
     .on { background: #2ecc71; color: #041b0d; }
     .off { background: #e67e22; color: #211000; }
@@ -34,6 +35,9 @@
     .status-bad { color: #e74c3c; font-weight: 700; }
     .status-warn { color: #f1c40f; font-weight: 700; }
     .pill { display: inline-block; padding: 3px 8px; border-radius: 999px; background: #2a2a2a; }
+    .pill.on { background: #2ecc71; color: #041b0d; }
+    .pill.off { background: #e67e22; color: #211000; }
+    .pill.pin { background: #40360f; color: #f1c40f; }
     .ws-ok { color: #2ecc71; }
     .ws-bad { color: #e74c3c; }
     .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -80,6 +84,10 @@
 
   <div class="section">
     <h2>Телевизоры / управляемые устройства</h2>
+    <div class="row">
+      <input id="deviceFilter" placeholder="Поиск по имени, IP, MAC, типу" oninput="renderDevices()">
+      <button class="secondary" onclick="clearDeviceFilter()">Сбросить</button>
+    </div>
     <table>
       <thead>
         <tr>
@@ -196,6 +204,20 @@ function typeLabel(type) {
 function sortDevices() {
   devices.sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
 }
+function deviceSearchText(device) {
+  return [device.name, device.ip, device.mac, device.type, device.lease_name]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+function deviceMatchesFilter(device) {
+  const filter = (document.getElementById('deviceFilter')?.value || '').trim().toLowerCase();
+  return !filter || deviceSearchText(device).includes(filter) || editingDevices.has(normalizeMac(device.mac));
+}
+function clearDeviceFilter() {
+  document.getElementById('deviceFilter').value = '';
+  renderDevices();
+}
 function renderDeviceTypeSelect(selectId, selected='tv') {
   const select = document.getElementById(selectId);
   if (!select) return;
@@ -216,6 +238,7 @@ function deviceInputIds(mac) {
   return {
     nameId: `device-name-${key}`,
     typeId: `device-type-${key}`,
+    saveId: `device-save-${key}`,
   };
 }
 function currentDevice(mac) {
@@ -237,6 +260,7 @@ function updateDeviceDraft(mac, nameId, typeId) {
     name: document.getElementById(nameId).value,
     type: document.getElementById(typeId).value,
   });
+  updateDeviceSaveButton(mac);
 }
 function deviceDraftChanged(mac) {
   const normalized = normalizeMac(mac);
@@ -255,6 +279,14 @@ function maybeFinishDeviceEdit(mac) {
     renderDevices();
   }, 0);
 }
+function hasUnsavedDeviceDrafts() {
+  return [...deviceDrafts.keys()].some(mac => deviceDraftChanged(mac));
+}
+function updateDeviceSaveButton(mac) {
+  const ids = deviceInputIds(mac);
+  const button = document.getElementById(ids.saveId);
+  if (button) button.disabled = !deviceDraftChanged(mac);
+}
 function renderTargetSelect(selectId, selected='') {
   const select = document.getElementById(selectId);
   if (!select) return;
@@ -269,20 +301,22 @@ function renderTargetSelect(selectId, selected='') {
 }
 function renderDevices() {
   const body = document.getElementById('devicesBody');
-  const visibleMacs = new Set(devices.map(d => normalizeMac(d.mac)));
-  for (const d of devices) {
+  const visibleDevices = devices.filter(deviceMatchesFilter);
+  const visibleMacs = new Set(visibleDevices.map(d => normalizeMac(d.mac)));
+  for (const d of visibleDevices) {
     const normalizedMac = normalizeMac(d.mac);
     const existingRow = document.getElementById(deviceRowId(d.mac));
     if (existingRow && editingDevices.has(normalizedMac)) continue;
 
     const s = states.get(d.mac.toLowerCase());
-    const {nameId, typeId} = deviceInputIds(d.mac);
+    const {nameId, typeId, saveId} = deviceInputIds(d.mac);
     const draft = deviceDrafts.get(normalizedMac);
     const currentName = draft ? draft.name : d.name;
     const currentType = draft ? draft.type : (d.type || 'tv');
     const mode = d.vpn
-      ? '<span class="status-on">VPN ON</span>'
-      : '<span class="status-off">DIRECT</span>';
+      ? '<span class="pill on">VPN</span>'
+      : '<span class="pill off">DIRECT</span>';
+    const typePill = `<span class="pill small">${escapeHtml(typeLabel(d.type || 'tv'))}</span>`;
     const runtime = s && s.runtime
       ? `${s.runtime.rule_present ? 'rule: yes' : 'rule: no'}${s.runtime.route_probe ? '<br><span class="small">' + escapeHtml(s.runtime.route_probe) + '</span>' : ''}`
       : '<span class="small">...</span>';
@@ -296,7 +330,7 @@ function renderDevices() {
           onfocus="startDeviceEdit('${d.mac}')"
           oninput="updateDeviceDraft('${d.mac}', '${nameId}', '${typeId}')"
           onblur="maybeFinishDeviceEdit('${d.mac}')">
-        ${d.pinned ? '<div class="small pinned-pill">закреплено</div>' : ''}
+        ${d.pinned ? '<span class="pill pin small">PINNED</span>' : ''}
       </td>
       <td data-label="IP">${escapeHtml(d.ip)}</td>
       <td data-label="MAC" class="small">${escapeHtml(d.mac)}</td>
@@ -305,11 +339,12 @@ function renderDevices() {
           onfocus="startDeviceEdit('${d.mac}')"
           onchange="updateDeviceDraft('${d.mac}', '${nameId}', '${typeId}')"
           onblur="maybeFinishDeviceEdit('${d.mac}')"></select>
+        <div>${typePill}</div>
       </td>
       <td data-label="Режим">${mode}</td>
       <td data-label="Backend/rule"><div>${escapeHtml(backend)}</div><div class="small">${runtime}</div></td>
       <td data-label="Действие">
-        <button class="secondary" onclick="saveDevice('${d.mac}', '${nameId}', '${typeId}')">Сохранить</button>
+        <button id="${saveId}" class="secondary" onclick="saveDevice('${d.mac}', '${nameId}', '${typeId}')" ${deviceDraftChanged(d.mac) ? '' : 'disabled'}>Сохранить</button>
         <button class="secondary" onclick="cancelDeviceEdit('${d.mac}')">Отмена</button>
         <button class="secondary" onclick="pinDevice('${d.mac}', ${d.pinned ? 'false' : 'true'})">${d.pinned ? 'Открепить' : 'Закрепить'}</button>
         <button class="on" onclick="setVpn('${d.mac}', true)">VPN ON</button>
@@ -321,6 +356,7 @@ function renderDevices() {
     if (existingRow) body.replaceChild(tr, existingRow);
     body.appendChild(tr);
     renderDeviceTypeSelect(typeId, currentType);
+    updateDeviceSaveButton(d.mac);
   }
   for (const row of [...body.querySelectorAll('tr[data-mac]')]) {
     if (!visibleMacs.has(row.dataset.mac)) row.remove();
@@ -488,6 +524,11 @@ function connectWs() {
 
 loadAll();
 connectWs();
+window.addEventListener('beforeunload', (event) => {
+  if (!hasUnsavedDeviceDrafts()) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
 </script>
 </body>
 </html>
