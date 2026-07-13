@@ -306,7 +306,10 @@ function renderDevices() {
   for (const d of visibleDevices) {
     const normalizedMac = normalizeMac(d.mac);
     const existingRow = document.getElementById(deviceRowId(d.mac));
-    if (existingRow && editingDevices.has(normalizedMac)) continue;
+    if (existingRow && editingDevices.has(normalizedMac)) {
+      body.appendChild(existingRow);
+      continue;
+    }
 
     const s = states.get(d.mac.toLowerCase());
     const {nameId, typeId, saveId} = deviceInputIds(d.mac);

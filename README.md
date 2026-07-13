@@ -110,6 +110,63 @@ http://127.0.0.1:8090/docs
 
 ## API
 
+### Integration notes
+
+This service is the control plane for per-device routing policy. It stores desired state in JSON files and applies host routing rules when VPN state changes.
+
+Important behavior for external services:
+
+- Device identity is the normalized lowercase MAC address. Use the exact `mac` returned by `/api/devices` for device-specific endpoints.
+- Remote identity is `remote_id`. A remote controls a device through `target_mac`.
+- `remote_mac` is the ESP32 controller MAC. If a remote reports `remote_mac`, that MAC is excluded from `/api/devices` so the same ESP32 is not treated as a routable managed device.
+- `/api/devices` and device state endpoints sync current DHCP leases before returning data.
+- Updating `name` sets `name_override=true`, so DHCP lease names no longer overwrite the user-friendly name. The current DHCP name remains available as `lease_name`.
+- `type` is an enum. Do not hardcode type options in clients; fetch them from `/api/device-types`.
+- `pinned=true` puts important devices first in `/api/devices` and in the panel.
+- `vpn=true` means the service should install `ip rule from DEVICE_IP/32 lookup TABLE_ID`; `vpn=false` means direct routing through the main table.
+- In `TVVPN_DRY_RUN=true`, state still changes in JSON, but mutating host networking commands are skipped.
+- `/api/health` is for lightweight service checks. `/api/diagnostics` is for operator/debug tooling and includes raw routing text.
+- WebSocket messages are event/state updates for panels and ESP32 remotes. HTTP remains the simplest API for service-to-service automation.
+
+Device response shape:
+
+```json
+{
+  "name": "Bedroom TV",
+  "ip": "192.168.50.20",
+  "mac": "b8:87:6e:4a:cd:2c",
+  "vpn": false,
+  "type": "tv",
+  "pinned": true,
+  "name_override": true,
+  "lease_name": "android-tv",
+  "lease_expiry": "1783970000"
+}
+```
+
+Device runtime state response shape:
+
+```json
+{
+  "ok": true,
+  "device": {
+    "name": "Bedroom TV",
+    "ip": "192.168.50.20",
+    "mac": "b8:87:6e:4a:cd:2c",
+    "vpn": true,
+    "type": "tv",
+    "pinned": true,
+    "name_override": true,
+    "lease_name": "android-tv",
+    "lease_expiry": "1783970000"
+  },
+  "backend": {"active": "sing-box", "ok": true, "table_id": "200", "table_has_default": true, "default_route": "default dev sbtun0"},
+  "runtime": {"rule_present": true, "route_probe_ok": true, "route_probe": "8.8.8.8 from 192.168.50.20 dev sbtun0 ..."}
+}
+```
+
+Authentication is optional. If `TVVPN_API_TOKEN` is empty, no token is required. If it is set, HTTP clients can send `X-API-Token`, `Authorization: Bearer`, or `?token=...`.
+
 ### Health
 
 ```bash
@@ -144,7 +201,7 @@ curl http://192.168.50.1:8090/api/device-types
 curl http://192.168.50.1:8090/api/devices/b8:87:6e:4a:cd:2c
 ```
 
-### Update device name/type
+### Update device name/type/pinned state
 
 ```bash
 curl -X PATCH http://192.168.50.1:8090/api/devices/b8:87:6e:4a:cd:2c \
