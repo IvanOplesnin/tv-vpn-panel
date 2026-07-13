@@ -125,7 +125,7 @@ Important behavior for external services:
 - `pinned=true` puts important devices first in `/api/devices` and in the panel.
 - `vpn=true` means the service should install `ip rule from DEVICE_IP/32 lookup TABLE_ID`; `vpn=false` means direct routing through the main table.
 - In `TVVPN_DRY_RUN=true`, state still changes in JSON, but mutating host networking commands are skipped.
-- `/api/health` is for lightweight service checks. `/api/diagnostics` is for operator/debug tooling and includes raw routing text.
+- `/api/health` is for lightweight service checks. `/api/diagnostics` is for operator/debug tooling and includes raw routing text plus VPN interface status for `tun0` and `sbtun0`.
 - WebSocket messages are event/state updates for panels and ESP32 remotes. HTTP remains the simplest API for service-to-service automation.
 
 Device response shape:
@@ -181,7 +181,8 @@ Health includes backend status, dry-run state, runtime JSON readability, leases 
 curl http://192.168.50.1:8090/api/diagnostics
 ```
 
-Diagnostics includes backend state, runtime file paths, key routing settings, current `ip rule`, and table `200` routes.
+Diagnostics includes backend state, runtime file paths, key routing settings, current `ip rule`, table `200` routes, and `vpn_interfaces`.
+Each VPN interface entry reports `ok`, `exists`, `up`, assigned `addresses`, whether it is present in table `200`, and whether it is the current default route.
 
 ### List devices
 

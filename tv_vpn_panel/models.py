@@ -115,6 +115,17 @@ class BackendState(BaseModel):
     default_route: str | None = None
 
 
+class VpnInterfaceState(BaseModel):
+    name: str
+    ok: bool = False
+    exists: bool = False
+    up: bool = False
+    has_addresses: bool = False
+    addresses: list[str] = Field(default_factory=list)
+    in_route_table: bool = False
+    is_default_route: bool = False
+
+
 class DeviceRuntimeState(BaseModel):
     rule_present: bool = False
     route_probe_ok: bool = False
@@ -160,6 +171,7 @@ class DiagnosticsResponse(BaseModel):
     remotes_count: int
     online_remotes_count: int
     ip_command_available: bool
+    vpn_interfaces: list[VpnInterfaceState] = Field(default_factory=list)
     ip_rules: str
     route_table: str
 

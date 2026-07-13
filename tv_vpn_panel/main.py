@@ -54,7 +54,14 @@ from .store import (
     update_device,
     update_remote,
 )
-from .system_ops import get_backend_state, ip_rule_text, probe_device_route, refresh_backend_route, route_table_text
+from .system_ops import (
+    get_backend_state,
+    get_vpn_interface_states,
+    ip_rule_text,
+    probe_device_route,
+    refresh_backend_route,
+    route_table_text,
+)
 from .ws import manager
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -166,6 +173,7 @@ async def health(_: None = Depends(require_http_token)) -> HealthResponse:
 @app.get("/api/diagnostics", response_model=DiagnosticsResponse)
 async def diagnostics(_: None = Depends(require_http_token)) -> DiagnosticsResponse:
     devices = load_devices()
+    route_table = route_table_text()
     return DiagnosticsResponse(
         dry_run=settings.dry_run,
         backend=get_backend_state(),
@@ -181,8 +189,9 @@ async def diagnostics(_: None = Depends(require_http_token)) -> DiagnosticsRespo
         remotes_count=len(load_remotes()),
         online_remotes_count=manager.online_remotes_count(),
         ip_command_available=shutil.which("ip") is not None,
+        vpn_interfaces=get_vpn_interface_states(route_table),
         ip_rules=ip_rule_text(),
-        route_table=route_table_text(),
+        route_table=route_table,
     )
 
 

@@ -7,7 +7,7 @@ def test_device_api_smoke(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     from tv_vpn_panel import main, store
-    from tv_vpn_panel.models import BackendState
+    from tv_vpn_panel.models import BackendState, VpnInterfaceState
 
     cfg = SimpleNamespace(
         devices_file=tmp_path / "devices.json",
@@ -42,6 +42,32 @@ def test_device_api_smoke(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(main, "ip_rule_text", lambda: "0: from all lookup local\n")
     monkeypatch.setattr(main, "route_table_text", lambda: "default dev sbtun0\n")
+    monkeypatch.setattr(
+        main,
+        "get_vpn_interface_states",
+        lambda route_table=None: [
+            VpnInterfaceState(
+                name="tun0",
+                ok=False,
+                exists=False,
+                up=False,
+                has_addresses=False,
+                addresses=[],
+                in_route_table=False,
+                is_default_route=False,
+            ),
+            VpnInterfaceState(
+                name="sbtun0",
+                ok=True,
+                exists=True,
+                up=True,
+                has_addresses=True,
+                addresses=["172.19.0.2/30"],
+                in_route_table=True,
+                is_default_route=True,
+            ),
+        ],
+    )
 
     client = TestClient(main.app)
 
@@ -86,5 +112,7 @@ def test_device_api_smoke(tmp_path, monkeypatch):
     assert diagnostics.json()["dry_run"] is True
     assert diagnostics.json()["table_id"] == "200"
     assert diagnostics.json()["ap_interface"] == "wlan0"
+    assert diagnostics.json()["vpn_interfaces"][1]["name"] == "sbtun0"
+    assert diagnostics.json()["vpn_interfaces"][1]["ok"] is True
     assert diagnostics.json()["ip_rules"] == "0: from all lookup local\n"
     assert diagnostics.json()["route_table"] == "default dev sbtun0\n"

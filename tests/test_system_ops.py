@@ -45,3 +45,31 @@ def test_backend_state_detects_sing_box(monkeypatch):
     assert state.ok is True
     assert state.table_has_default is True
     assert state.default_route == "default dev sbtun0 scope link"
+
+
+def test_vpn_interface_state_reports_second_vpn(monkeypatch):
+    from tv_vpn_panel import system_ops
+
+    monkeypatch.setattr(
+        system_ops,
+        "interface_link_text",
+        lambda name: "4: sbtun0: <POINTOPOINT,UP,LOWER_UP> mtu 9000 state UNKNOWN"
+        if name == "sbtun0"
+        else "",
+    )
+    monkeypatch.setattr(
+        system_ops,
+        "interface_addr_text",
+        lambda name: "4: sbtun0 inet 172.19.0.2/30 scope global sbtun0\n" if name == "sbtun0" else "",
+    )
+    route_table = "default via 10.8.0.1 dev tun0\n172.19.0.0/30 dev sbtun0 scope link"
+
+    state = system_ops.get_vpn_interface_state("sbtun0", route_table)
+
+    assert state.ok is True
+    assert state.exists is True
+    assert state.up is True
+    assert state.has_addresses is True
+    assert state.addresses == ["172.19.0.2/30"]
+    assert state.in_route_table is True
+    assert state.is_default_route is False

@@ -4,7 +4,10 @@ import subprocess
 from pathlib import Path
 
 from .config import settings
-from .models import BackendState, DeviceRuntimeState
+from .models import BackendState, DeviceRuntimeState, VpnInterfaceState
+
+
+VPN_INTERFACE_NAMES = ("tun0", "sbtun0")
 
 
 def run_cmd(cmd: list[str], check: bool = False, timeout: float = 5.0) -> subprocess.CompletedProcess[str]:
@@ -82,6 +85,72 @@ def route_table_text() -> str:
     if result is None:
         return ""
     return result.stdout.strip()
+
+
+def interface_link_text(interface: str) -> str:
+    result = safe_run(["ip", "link", "show", "dev", interface], timeout=3.0)
+    if result is None or result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def interface_addr_text(interface: str) -> str:
+    result = safe_run(["ip", "-o", "addr", "show", "dev", interface], timeout=3.0)
+    if result is None or result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def interface_is_up(link_text: str) -> bool:
+    if not link_text:
+        return False
+    first_line = link_text.splitlines()[0]
+    if "state UP" in first_line:
+        return True
+    if "<" not in first_line or ">" not in first_line:
+        return False
+    flags = first_line.split("<", 1)[1].split(">", 1)[0].split(",")
+    return "UP" in flags
+
+
+def interface_addresses(addr_text: str) -> list[str]:
+    addresses: list[str] = []
+    for line in addr_text.splitlines():
+        parts = line.split()
+        for family in ("inet", "inet6"):
+            if family in parts:
+                index = parts.index(family)
+                if index + 1 < len(parts):
+                    addresses.append(parts[index + 1])
+    return addresses
+
+
+def get_vpn_interface_state(interface: str, route_table: str | None = None) -> VpnInterfaceState:
+    link_text = interface_link_text(interface)
+    addr_text = interface_addr_text(interface) if link_text else ""
+    addresses = interface_addresses(addr_text)
+    routes = route_table_text() if route_table is None else route_table
+    route_lines = routes.splitlines()
+    in_route_table = any(f" dev {interface}" in line for line in route_lines)
+    is_default_route = any(line.startswith("default") and f" dev {interface}" in line for line in route_lines)
+    exists = bool(link_text)
+    up = interface_is_up(link_text)
+
+    return VpnInterfaceState(
+        name=interface,
+        ok=exists and up and bool(addresses),
+        exists=exists,
+        up=up,
+        has_addresses=bool(addresses),
+        addresses=addresses,
+        in_route_table=in_route_table,
+        is_default_route=is_default_route,
+    )
+
+
+def get_vpn_interface_states(route_table: str | None = None) -> list[VpnInterfaceState]:
+    routes = route_table_text() if route_table is None else route_table
+    return [get_vpn_interface_state(interface, routes) for interface in VPN_INTERFACE_NAMES]
 
 
 def get_backend_state() -> BackendState:
