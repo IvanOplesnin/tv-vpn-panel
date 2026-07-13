@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from tv_vpn_panel.models import DeviceCreate, DeviceUpdate, RemoteCreate
 
 
@@ -64,3 +66,53 @@ def test_apply_all_rules_uses_mocked_route_operations(store_env):
     store.apply_all_rules()
 
     assert ("192.168.50.30", True) in calls["apply"]
+
+
+def test_migrate_runtime_files_normalizes_legacy_data(store_env):
+    cfg, _ = store_env
+    from tv_vpn_panel import store
+
+    cfg.devices_file.write_text(
+        json.dumps(
+            [
+                {"name": "TV", "ip": "192.168.50.50", "mac": "aa:bb:cc:dd:ee:50", "vpn": False},
+                {
+                    "name": "Old remote",
+                    "ip": "192.168.50.51",
+                    "mac": "aa:bb:cc:dd:ee:51",
+                    "type": "remote",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    cfg.remotes_file.write_text(
+        json.dumps(
+            [
+                {
+                    "remote_id": " remote-1 ",
+                    "remote_mac": "AA:BB:CC:DD:EE:52",
+                    "target_mac": "AA:BB:CC:DD:EE:50",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = store.migrate_runtime_files()
+
+    assert "removed legacy remote device" in report["devices"]
+    assert cfg.devices_file.with_name("devices.json.bak").exists()
+    assert cfg.remotes_file.with_name("remotes.json.bak").exists()
+
+    devices = json.loads(cfg.devices_file.read_text(encoding="utf-8"))
+    assert len(devices) == 1
+    assert devices[0]["type"] == "tv"
+    assert devices[0]["pinned"] is False
+    assert devices[0]["name_override"] is False
+    assert devices[0]["lease_name"] == "TV"
+
+    remotes = json.loads(cfg.remotes_file.read_text(encoding="utf-8"))
+    assert remotes[0]["remote_id"] == "remote-1"
+    assert remotes[0]["remote_mac"] == "aa:bb:cc:dd:ee:52"
+    assert remotes[0]["target_mac"] == "aa:bb:cc:dd:ee:50"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,6 +10,9 @@ from pathlib import Path
 from .config import settings
 from .models import Device, DeviceCreate, DeviceUpdate, Remote, RemoteCreate, RemoteUpdateRequest
 from .system_ops import apply_device_rule, disable_vpn_rule
+
+
+RUNTIME_SCHEMA_VERSION = 2
 
 
 def _normal_mac(mac: str | None) -> str:
@@ -40,6 +44,33 @@ def _atomic_write_json(path: Path, data: object) -> None:
         tmp_name = tmp.name
 
     os.replace(tmp_name, path)
+
+
+def _read_json_list(path: Path) -> tuple[list[dict], list[str]]:
+    if not path.exists():
+        return [], ["missing"]
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return [], [f"invalid json: {exc}"]
+
+    if not isinstance(raw, list):
+        return [], ["expected list"]
+
+    items = [item for item in raw if isinstance(item, dict)]
+    issues: list[str] = []
+    if len(items) != len(raw):
+        issues.append("ignored non-object items")
+    return items, issues
+
+
+def _backup_json(path: Path) -> Path | None:
+    if not path.exists():
+        return None
+    backup = path.with_name(f"{path.name}.bak")
+    shutil.copy2(path, backup)
+    return backup
 
 
 def load_devices() -> list[Device]:
@@ -106,6 +137,91 @@ def load_remotes() -> list[Remote]:
 def save_remotes(remotes: list[Remote]) -> None:
     data = [r.model_dump(exclude_none=True) for r in remotes]
     _atomic_write_json(settings.remotes_file, data)
+
+
+def _normalize_device_item(item: dict) -> tuple[Device | None, str | None]:
+    data = dict(item)
+    if data.get("type") == "remote":
+        return None, "removed legacy remote device"
+
+    data.pop("target_mac", None)
+    data.setdefault("type", "tv")
+    data.setdefault("pinned", False)
+    data.setdefault("name_override", False)
+    if "lease_name" not in data and not data["name_override"]:
+        data["lease_name"] = data.get("name")
+
+    try:
+        return Device(**data), None
+    except Exception as exc:
+        return None, f"ignored invalid device {data.get('mac') or data.get('ip') or '<unknown>'}: {exc}"
+
+
+def _normalize_remote_item(item: dict) -> tuple[Remote | None, str | None]:
+    data = dict(item)
+    data["remote_id"] = _normal_remote_id(data.get("remote_id"))
+    if not data["remote_id"]:
+        return None, "ignored remote without remote_id"
+    if data.get("remote_mac") is not None:
+        data["remote_mac"] = _normal_mac(data.get("remote_mac")) or None
+    if data.get("target_mac") is not None:
+        data["target_mac"] = _normal_mac(data.get("target_mac")) or None
+
+    try:
+        return Remote(**data), None
+    except Exception as exc:
+        return None, f"ignored invalid remote {data.get('remote_id') or '<unknown>'}: {exc}"
+
+
+def migrate_runtime_files() -> dict[str, list[str]]:
+    """Normalize runtime JSON files without changing their public list format."""
+    report: dict[str, list[str]] = {"devices": [], "remotes": []}
+
+    device_items, device_issues = _read_json_list(settings.devices_file)
+    if any(issue.startswith("invalid json") or issue == "expected list" for issue in device_issues):
+        report["devices"].extend(device_issues)
+    else:
+        devices: list[Device] = []
+        report["devices"].extend(issue for issue in device_issues if issue != "missing")
+        for item in device_items:
+            device, issue = _normalize_device_item(item)
+            if issue:
+                report["devices"].append(issue)
+            if device is not None:
+                devices.append(device)
+
+        normalized = [device.model_dump(mode="json", exclude_none=True) for device in devices]
+        if "missing" in device_issues:
+            save_devices(devices)
+            report["devices"].append("created empty file")
+        elif normalized != device_items:
+            backup = _backup_json(settings.devices_file)
+            save_devices(devices)
+            report["devices"].append(f"migrated with backup {backup}" if backup else "migrated")
+
+    remote_items, remote_issues = _read_json_list(settings.remotes_file)
+    if any(issue.startswith("invalid json") or issue == "expected list" for issue in remote_issues):
+        report["remotes"].extend(remote_issues)
+    else:
+        remotes: list[Remote] = []
+        report["remotes"].extend(issue for issue in remote_issues if issue != "missing")
+        for item in remote_items:
+            remote, issue = _normalize_remote_item(item)
+            if issue:
+                report["remotes"].append(issue)
+            if remote is not None:
+                remotes.append(remote)
+
+        normalized = [remote.model_dump(exclude_none=True) for remote in remotes]
+        if "missing" in remote_issues:
+            save_remotes(remotes)
+            report["remotes"].append("created empty file")
+        elif normalized != remote_items:
+            backup = _backup_json(settings.remotes_file)
+            save_remotes(remotes)
+            report["remotes"].append(f"migrated with backup {backup}" if backup else "migrated")
+
+    return report
 
 
 def find_remote(remote_id: str, remotes: list[Remote] | None = None) -> Remote | None:

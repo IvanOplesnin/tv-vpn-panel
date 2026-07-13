@@ -40,6 +40,7 @@ from .store import (
     load_devices,
     load_remotes,
     managed_devices,
+    migrate_runtime_files,
     register_remote_seen,
     set_device_vpn,
     sync_devices_from_leases,
@@ -98,6 +99,7 @@ async def periodic_sync_loop() -> None:
 async def startup() -> None:
     global periodic_task
     async with state_lock:
+        await asyncio.to_thread(migrate_runtime_files)
         await asyncio.to_thread(apply_all_rules)
     if settings.enable_periodic_sync:
         periodic_task = asyncio.create_task(periodic_sync_loop())
