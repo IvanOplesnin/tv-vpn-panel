@@ -15,6 +15,8 @@ from .models import (
     Device,
     DeviceCreate,
     DeviceState,
+    DeviceTypeInfo,
+    DeviceUpdate,
     HealthResponse,
     Remote,
     RemoteBindRequest,
@@ -24,6 +26,7 @@ from .models import (
     ToggleResponse,
     WsInbound,
     WsOutbound,
+    device_type_options,
 )
 from .store import (
     add_device,
@@ -42,6 +45,7 @@ from .store import (
     sync_devices_from_leases,
     toggle_device_vpn,
     unbind_remote,
+    update_device,
     update_remote,
 )
 from .system_ops import get_backend_state, probe_device_route, refresh_backend_route
@@ -135,6 +139,11 @@ async def health(_: None = Depends(require_http_token)) -> HealthResponse:
     )
 
 
+@app.get("/api/device-types", response_model=list[DeviceTypeInfo])
+async def api_device_types(_: None = Depends(require_http_token)) -> list[DeviceTypeInfo]:
+    return device_type_options()
+
+
 @app.get("/api/devices", response_model=list[Device])
 async def api_devices(_: None = Depends(require_http_token)) -> list[Device]:
     async with state_lock:
@@ -159,9 +168,29 @@ async def api_backend_refresh(_: None = Depends(require_http_token)) -> ApiMessa
 
 @app.post("/api/devices", response_model=Device)
 async def api_add_device(payload: DeviceCreate, _: None = Depends(require_http_token)) -> Device:
-    async with state_lock:
-        device = await asyncio.to_thread(add_device, payload)
+    try:
+        async with state_lock:
+            device = await asyncio.to_thread(add_device, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     await sync_and_broadcast_all()
+    return device
+
+
+@app.patch("/api/devices/{mac}", response_model=Device)
+async def api_update_device(
+    mac: str,
+    payload: DeviceUpdate,
+    _: None = Depends(require_http_token),
+) -> Device:
+    try:
+        async with state_lock:
+            device = await asyncio.to_thread(update_device, mac, payload)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="device not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    await broadcast_device(mac)
     return device
 
 

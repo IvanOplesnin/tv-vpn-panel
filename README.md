@@ -122,11 +122,27 @@ curl http://192.168.50.1:8090/api/health
 curl http://192.168.50.1:8090/api/devices
 ```
 
+### List device types
+
+```bash
+curl http://192.168.50.1:8090/api/device-types
+```
+
 ### Get one device state
 
 ```bash
 curl http://192.168.50.1:8090/api/devices/b8:87:6e:4a:cd:2c
 ```
+
+### Update device name/type
+
+```bash
+curl -X PATCH http://192.168.50.1:8090/api/devices/b8:87:6e:4a:cd:2c \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "Bedroom TV", "type": "tv"}'
+```
+
+Custom device names are preserved across DHCP lease syncs.
 
 ### Enable VPN
 
@@ -188,6 +204,7 @@ curl -X DELETE http://192.168.50.1:8090/api/remotes/remote-bedroom-01
 ```
 
 Remote bindings are stored separately from devices in `/opt/tv-vpn-panel/remotes.json`.
+If a remote reports `remote_mac`, that MAC is excluded from the managed devices list so the same ESP32 does not appear both as a remote and as a routable device.
 
 ## WebSocket for ESP32
 

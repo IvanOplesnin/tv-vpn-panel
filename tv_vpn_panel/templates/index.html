@@ -37,6 +37,8 @@
     .ws-ok { color: #2ecc71; }
     .ws-bad { color: #e74c3c; }
     .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .name-input { min-width: 180px; width: min(260px, 100%); }
+    .type-select { min-width: 150px; }
     code { background: #222; padding: 2px 5px; border-radius: 5px; }
     @media (max-width: 760px) {
       table, thead, tbody, th, td, tr { display: block; }
@@ -76,6 +78,7 @@
           <th>Название</th>
           <th>IP</th>
           <th>MAC</th>
+          <th>Тип</th>
           <th>Режим</th>
           <th>Backend/rule</th>
           <th>Действие</th>
@@ -111,11 +114,7 @@
       <input id="name" placeholder="Название" required>
       <input id="ip" placeholder="IP, например 192.168.50.200" required>
       <input id="mac" placeholder="MAC, можно пустым">
-      <select id="type">
-        <option value="tv">TV / управляемое устройство</option>
-        <option value="remote">ESP32 remote в devices.json (старый вариант)</option>
-      </select>
-      <input id="targetMac" placeholder="target_mac для remote">
+      <select id="type"></select>
       <button class="on" onclick="addDevice()">Добавить</button>
     </div>
   </div>
@@ -137,6 +136,7 @@ let ws = null;
 let states = new Map();
 let devices = [];
 let remotes = [];
+let deviceTypes = [];
 
 function token() {
   return localStorage.getItem('tvvpn_api_token') || '';
@@ -173,6 +173,25 @@ function deviceNameByMac(mac) {
   const d = devices.find(x => x.mac.toLowerCase() === mac.toLowerCase());
   return d ? `${d.name} (${d.mac})` : mac;
 }
+function safeId(value) {
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+function typeLabel(type) {
+  const item = deviceTypes.find(x => x.value === type);
+  return item ? item.label : (type || 'unknown');
+}
+function renderDeviceTypeSelect(selectId, selected='tv') {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  select.innerHTML = '';
+  for (const item of deviceTypes) {
+    const opt = document.createElement('option');
+    opt.value = item.value;
+    opt.textContent = item.label;
+    if (item.value === selected) opt.selected = true;
+    select.appendChild(opt);
+  }
+}
 function renderTargetSelect(selectId, selected='') {
   const select = document.getElementById(selectId);
   if (!select) return;
@@ -190,6 +209,9 @@ function renderDevices() {
   body.innerHTML = '';
   for (const d of devices) {
     const s = states.get(d.mac.toLowerCase());
+    const key = safeId(d.mac);
+    const nameId = `device-name-${key}`;
+    const typeId = `device-type-${key}`;
     const mode = d.vpn
       ? '<span class="status-on">VPN ON</span>'
       : '<span class="status-off">DIRECT</span>';
@@ -199,12 +221,14 @@ function renderDevices() {
     const backend = s && s.backend ? backendText(s.backend) : '...';
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td data-label="Название">${escapeHtml(d.name)} <span class="pill small">${escapeHtml(d.type || 'tv')}</span></td>
+      <td data-label="Название"><input id="${nameId}" class="name-input" value="${escapeHtml(d.name)}"></td>
       <td data-label="IP">${escapeHtml(d.ip)}</td>
       <td data-label="MAC" class="small">${escapeHtml(d.mac)}</td>
+      <td data-label="Тип"><select id="${typeId}" class="type-select" title="${escapeHtml(typeLabel(d.type))}"></select></td>
       <td data-label="Режим">${mode}</td>
       <td data-label="Backend/rule"><div>${escapeHtml(backend)}</div><div class="small">${runtime}</div></td>
       <td data-label="Действие">
+        <button class="secondary" onclick="saveDevice('${d.mac}', '${nameId}', '${typeId}')">Сохранить</button>
         <button class="on" onclick="setVpn('${d.mac}', true)">VPN ON</button>
         <button class="off" onclick="setVpn('${d.mac}', false)">DIRECT</button>
         <button class="secondary" onclick="loadState('${d.mac}')">State</button>
@@ -212,6 +236,7 @@ function renderDevices() {
       </td>
     `;
     body.appendChild(tr);
+    renderDeviceTypeSelect(typeId, d.type || 'tv');
   }
 }
 function renderRemotes() {
@@ -246,6 +271,10 @@ function render() {
 }
 async function loadAll() {
   try {
+    if (!deviceTypes.length) {
+      deviceTypes = await api('/api/device-types');
+      renderDeviceTypeSelect('type', 'tv');
+    }
     devices = await api('/api/devices');
     remotes = await api('/api/remotes');
     for (const d of devices) await loadState(d.mac, false);
@@ -270,13 +299,22 @@ async function setVpn(mac, vpn) {
   if (idx >= 0) devices[idx] = res.device;
   await loadState(mac);
 }
+async function saveDevice(mac, nameId, typeId) {
+  const payload = {
+    name: document.getElementById(nameId).value,
+    type: document.getElementById(typeId).value,
+  };
+  const device = await api(`/api/devices/${encodeURIComponent(mac)}`, {method:'PATCH', body: JSON.stringify(payload)});
+  const idx = devices.findIndex(d => d.mac.toLowerCase() === mac.toLowerCase());
+  if (idx >= 0) devices[idx] = device;
+  await loadState(mac);
+}
 async function addDevice() {
   const payload = {
     name: document.getElementById('name').value,
     ip: document.getElementById('ip').value,
     mac: document.getElementById('mac').value || null,
     type: document.getElementById('type').value,
-    target_mac: document.getElementById('targetMac').value || null,
   };
   await api('/api/devices', {method:'POST', body: JSON.stringify(payload)});
   await loadAll();

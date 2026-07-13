@@ -1,11 +1,46 @@
 from __future__ import annotations
 
+from enum import Enum
 from pydantic import BaseModel, Field
 from typing import Literal
 
 
-DeviceType = Literal["tv", "remote", "unknown"]
 BackendName = Literal["openvpn", "sing-box", "none", "unknown"]
+
+
+class DeviceType(str, Enum):
+    TV = "tv"
+    PHONE = "phone"
+    TABLET = "tablet"
+    LAPTOP = "laptop"
+    DESKTOP = "desktop"
+    CONSOLE = "console"
+    IOT = "iot"
+    UNKNOWN = "unknown"
+
+
+class DeviceTypeInfo(BaseModel):
+    value: DeviceType
+    label: str
+
+
+DEVICE_TYPE_LABELS: dict[DeviceType, str] = {
+    DeviceType.TV: "TV",
+    DeviceType.PHONE: "Phone",
+    DeviceType.TABLET: "Tablet",
+    DeviceType.LAPTOP: "Laptop",
+    DeviceType.DESKTOP: "Desktop",
+    DeviceType.CONSOLE: "Game console",
+    DeviceType.IOT: "IoT",
+    DeviceType.UNKNOWN: "Unknown",
+}
+
+
+def device_type_options() -> list[DeviceTypeInfo]:
+    return [
+        DeviceTypeInfo(value=device_type, label=label)
+        for device_type, label in DEVICE_TYPE_LABELS.items()
+    ]
 
 
 class Device(BaseModel):
@@ -13,8 +48,9 @@ class Device(BaseModel):
     ip: str
     mac: str
     vpn: bool = False
-    type: DeviceType = "tv"
-    target_mac: str | None = None
+    type: DeviceType = DeviceType.TV
+    name_override: bool = False
+    lease_name: str | None = None
     lease_expiry: str | None = None
 
 
@@ -22,8 +58,12 @@ class DeviceCreate(BaseModel):
     name: str
     ip: str
     mac: str | None = None
-    type: DeviceType = "tv"
-    target_mac: str | None = None
+    type: DeviceType = DeviceType.TV
+
+
+class DeviceUpdate(BaseModel):
+    name: str | None = None
+    type: DeviceType | None = None
 
 
 class Remote(BaseModel):

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .config import settings
-from .models import Device, DeviceCreate, Remote, RemoteCreate, RemoteUpdateRequest
+from .models import Device, DeviceCreate, DeviceUpdate, Remote, RemoteCreate, RemoteUpdateRequest
 from .system_ops import apply_device_rule, disable_vpn_rule
 
 
@@ -61,6 +61,9 @@ def load_devices() -> list[Device]:
         if not isinstance(item, dict):
             continue
         try:
+            item = dict(item)
+            if item.get("type") == "remote":
+                continue
             # Backward-compatible with the current Flask devices.json.
             if "type" not in item:
                 item["type"] = "tv"
@@ -71,7 +74,7 @@ def load_devices() -> list[Device]:
 
 
 def save_devices(devices: list[Device]) -> None:
-    data = [d.model_dump(exclude_none=True) for d in devices]
+    data = [d.model_dump(mode="json", exclude_none=True) for d in devices]
     _atomic_write_json(settings.devices_file, data)
 
 
@@ -135,6 +138,8 @@ def add_or_update_remote(payload: RemoteCreate) -> Remote:
         if payload.firmware is not None:
             existing.firmware = payload.firmware
         save_remotes(remotes)
+        if existing.remote_mac:
+            remove_devices_by_remote_macs({existing.remote_mac})
         return existing
 
     remote = Remote(
@@ -147,6 +152,8 @@ def add_or_update_remote(payload: RemoteCreate) -> Remote:
     )
     remotes.append(remote)
     save_remotes(remotes)
+    if remote.remote_mac:
+        remove_devices_by_remote_macs({remote.remote_mac})
     return remote
 
 
@@ -188,6 +195,8 @@ def register_remote_seen(
     remote.last_seen = _utc_now()
 
     save_remotes(remotes)
+    if remote.remote_mac:
+        remove_devices_by_remote_macs({remote.remote_mac})
     return remote
 
 
@@ -252,6 +261,32 @@ def remote_target_mac(remote_id: str | None) -> str | None:
     return None
 
 
+def _remote_macs(remotes: list[Remote] | None = None) -> set[str]:
+    remotes = remotes if remotes is not None else load_remotes()
+    return {_normal_mac(remote.remote_mac) for remote in remotes if _normal_mac(remote.remote_mac)}
+
+
+def remove_devices_by_remote_macs(remote_macs: set[str]) -> bool:
+    normalized = {_normal_mac(mac) for mac in remote_macs if _normal_mac(mac)}
+    if not normalized:
+        return False
+
+    devices = load_devices()
+    kept: list[Device] = []
+    removed = False
+    for device in devices:
+        if _normal_mac(device.mac) in normalized:
+            removed = True
+            if device.ip:
+                disable_vpn_rule(device.ip)
+            continue
+        kept.append(device)
+
+    if removed:
+        save_devices(kept)
+    return removed
+
+
 def read_leases() -> list[dict]:
     path = settings.leases_file
     if not path.exists():
@@ -292,6 +327,17 @@ def sync_devices_from_leases() -> list[Device]:
     """
     devices = load_devices()
     leases = read_leases()
+    remote_macs = _remote_macs()
+
+    if remote_macs:
+        kept: list[Device] = []
+        for device in devices:
+            if _normal_mac(device.mac) in remote_macs:
+                if device.ip:
+                    disable_vpn_rule(device.ip)
+                continue
+            kept.append(device)
+        devices = kept
 
     by_mac = {d.mac.lower(): d for d in devices if d.mac}
     by_ip = {d.ip: d for d in devices if d.ip}
@@ -301,33 +347,40 @@ def sync_devices_from_leases() -> list[Device]:
         ip = lease["ip"]
         name = lease["name"]
 
+        if mac in remote_macs:
+            continue
+
         if mac in by_mac:
             device = by_mac[mac]
             old_ip = device.ip
             if old_ip and old_ip != ip:
                 disable_vpn_rule(old_ip)
             device.ip = ip
-            # Preserve custom names for remotes; update plain auto-generated names.
-            if device.name.startswith("device-") or name != "*":
+            if not device.name_override:
                 device.name = name
             device.mac = mac
+            device.lease_name = name
             device.lease_expiry = lease["lease_expiry"]
         elif ip in by_ip:
             device = by_ip[ip]
-            device.name = name
+            if not device.name_override:
+                device.name = name
             device.mac = mac
+            device.lease_name = name
             device.lease_expiry = lease["lease_expiry"]
+            by_mac[mac] = device
         else:
-            devices.append(
-                Device(
-                    name=name,
-                    ip=ip,
-                    mac=mac,
-                    vpn=False,
-                    type="tv",
-                    lease_expiry=lease["lease_expiry"],
-                )
+            device = Device(
+                name=name,
+                ip=ip,
+                mac=mac,
+                vpn=False,
+                lease_name=name,
+                lease_expiry=lease["lease_expiry"],
             )
+            devices.append(device)
+            by_mac[mac] = device
+            by_ip[ip] = device
 
     save_devices(devices)
     return devices
@@ -335,7 +388,8 @@ def sync_devices_from_leases() -> list[Device]:
 
 def managed_devices(devices: list[Device] | None = None) -> list[Device]:
     devices = devices if devices is not None else load_devices()
-    return [d for d in devices if d.type != "remote"]
+    remote_macs = _remote_macs()
+    return [d for d in devices if _normal_mac(d.mac) not in remote_macs]
 
 
 def find_device(mac: str, devices: list[Device] | None = None) -> Device | None:
@@ -350,13 +404,15 @@ def find_device(mac: str, devices: list[Device] | None = None) -> Device | None:
 def add_device(payload: DeviceCreate) -> Device:
     devices = load_devices()
     mac = _normal_mac(payload.mac) or f"manual-{payload.ip}"
+    if mac in _remote_macs():
+        raise ValueError("remote MAC is tracked as ESP32 remote")
 
     existing = find_device(mac, devices)
     if existing is not None:
-        existing.name = payload.name
+        existing.name = payload.name.strip()
+        existing.name_override = True
         existing.ip = payload.ip
         existing.type = payload.type
-        existing.target_mac = _normal_mac(payload.target_mac) or None
         save_devices(devices)
         return existing
 
@@ -366,9 +422,29 @@ def add_device(payload: DeviceCreate) -> Device:
         mac=mac,
         vpn=False,
         type=payload.type,
-        target_mac=_normal_mac(payload.target_mac) or None,
+        name_override=True,
     )
     devices.append(device)
+    save_devices(devices)
+    return device
+
+
+def update_device(mac: str, payload: DeviceUpdate) -> Device:
+    devices = sync_devices_from_leases()
+    device = find_device(mac, devices)
+    if device is None:
+        raise KeyError(mac)
+
+    if payload.name is not None:
+        name = payload.name.strip()
+        if not name:
+            raise ValueError("name cannot be empty")
+        device.name = name
+        device.name_override = True
+
+    if payload.type is not None:
+        device.type = payload.type
+
     save_devices(devices)
     return device
 
@@ -395,8 +471,6 @@ def set_device_vpn(mac: str, vpn: bool) -> Device:
     device = find_device(mac, devices)
     if device is None:
         raise KeyError(mac)
-    if device.type == "remote":
-        raise ValueError("remote devices cannot be routed through VPN directly")
 
     device.vpn = vpn
     apply_device_rule(device.ip, vpn)
