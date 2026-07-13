@@ -145,6 +145,25 @@ class HealthResponse(BaseModel):
     backend_switch_allowed: bool = False
 
 
+class DiagnosticsResponse(BaseModel):
+    dry_run: bool
+    backend: BackendState
+    devices_file: str
+    remotes_file: str
+    leases_file: str
+    backend_switch_script: str
+    table_id: str
+    ap_interface: str
+    route_test_ip: str
+    devices_count: int
+    managed_devices_count: int
+    remotes_count: int
+    online_remotes_count: int
+    ip_command_available: bool
+    ip_rules: str
+    route_table: str
+
+
 class WsInbound(BaseModel):
     type: Literal["hello", "ping", "get_state", "set_vpn", "toggle_vpn", "sync"]
     remote_id: str | None = None

@@ -21,6 +21,7 @@ from .models import (
     DeviceState,
     DeviceTypeInfo,
     DeviceUpdate,
+    DiagnosticsResponse,
     HealthResponse,
     Remote,
     RemoteBindRequest,
@@ -53,7 +54,7 @@ from .store import (
     update_device,
     update_remote,
 )
-from .system_ops import get_backend_state, probe_device_route, refresh_backend_route
+from .system_ops import get_backend_state, ip_rule_text, probe_device_route, refresh_backend_route, route_table_text
 from .ws import manager
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -159,6 +160,29 @@ async def health(_: None = Depends(require_http_token)) -> HealthResponse:
         ip_command_available=shutil.which("ip") is not None,
         service_user=getpass.getuser(),
         backend_switch_allowed=settings.allow_backend_refresh,
+    )
+
+
+@app.get("/api/diagnostics", response_model=DiagnosticsResponse)
+async def diagnostics(_: None = Depends(require_http_token)) -> DiagnosticsResponse:
+    devices = load_devices()
+    return DiagnosticsResponse(
+        dry_run=settings.dry_run,
+        backend=get_backend_state(),
+        devices_file=str(settings.devices_file),
+        remotes_file=str(settings.remotes_file),
+        leases_file=str(settings.leases_file),
+        backend_switch_script=str(settings.backend_switch_script),
+        table_id=settings.table_id,
+        ap_interface=settings.ap_interface,
+        route_test_ip=settings.route_test_ip,
+        devices_count=len(devices),
+        managed_devices_count=len(managed_devices(devices)),
+        remotes_count=len(load_remotes()),
+        online_remotes_count=manager.online_remotes_count(),
+        ip_command_available=shutil.which("ip") is not None,
+        ip_rules=ip_rule_text(),
+        route_table=route_table_text(),
     )
 
 

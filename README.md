@@ -118,6 +118,14 @@ curl http://192.168.50.1:8090/api/health
 
 Health includes backend status, dry-run state, runtime JSON readability, leases readability, `ip` command availability, service user, and backend refresh permission.
 
+### Diagnostics
+
+```bash
+curl http://192.168.50.1:8090/api/diagnostics
+```
+
+Diagnostics includes backend state, runtime file paths, key routing settings, current `ip rule`, and table `200` routes.
+
 ### List devices
 
 ```bash

@@ -23,6 +23,10 @@ def test_device_api_smoke(tmp_path, monkeypatch):
             devices_file=cfg.devices_file,
             remotes_file=cfg.remotes_file,
             leases_file=cfg.leases_file,
+            backend_switch_script=tmp_path / "vpn-backend-switch.sh",
+            table_id="200",
+            ap_interface="wlan0",
+            route_test_ip="8.8.8.8",
             dry_run=True,
             allow_backend_refresh=False,
         ),
@@ -36,6 +40,8 @@ def test_device_api_smoke(tmp_path, monkeypatch):
         "get_backend_state",
         lambda: BackendState(table_id="200", active="none", ok=False, table_has_default=False),
     )
+    monkeypatch.setattr(main, "ip_rule_text", lambda: "0: from all lookup local\n")
+    monkeypatch.setattr(main, "route_table_text", lambda: "default dev sbtun0\n")
 
     client = TestClient(main.app)
 
@@ -74,3 +80,11 @@ def test_device_api_smoke(tmp_path, monkeypatch):
     assert health.json()["remotes_file_ok"] is True
     assert health.json()["ip_command_available"] is True
     assert health.json()["service_user"] == "pytest"
+
+    diagnostics = client.get("/api/diagnostics")
+    assert diagnostics.status_code == 200
+    assert diagnostics.json()["dry_run"] is True
+    assert diagnostics.json()["table_id"] == "200"
+    assert diagnostics.json()["ap_interface"] == "wlan0"
+    assert diagnostics.json()["ip_rules"] == "0: from all lookup local\n"
+    assert diagnostics.json()["route_table"] == "default dev sbtun0\n"
