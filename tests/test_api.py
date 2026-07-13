@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+
+def test_device_api_smoke(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from tv_vpn_panel import main, store
+    from tv_vpn_panel.models import BackendState
+
+    cfg = SimpleNamespace(
+        devices_file=tmp_path / "devices.json",
+        remotes_file=tmp_path / "remotes.json",
+        leases_file=tmp_path / "dnsmasq.leases",
+        table_id="200",
+    )
+    monkeypatch.setattr(store, "settings", cfg)
+    monkeypatch.setattr(store, "disable_vpn_rule", lambda ip: None)
+    monkeypatch.setattr(store, "apply_device_rule", lambda ip, vpn: None)
+    monkeypatch.setattr(
+        main,
+        "get_backend_state",
+        lambda: BackendState(table_id="200", active="none", ok=False, table_has_default=False),
+    )
+
+    client = TestClient(main.app)
+
+    device_types = client.get("/api/device-types")
+    assert device_types.status_code == 200
+    assert {"value": "tv", "label": "TV"} in device_types.json()
+
+    created = client.post(
+        "/api/devices",
+        json={
+            "name": "Living Room TV",
+            "ip": "192.168.50.40",
+            "mac": "aa:bb:cc:dd:ee:40",
+            "type": "tv",
+        },
+    )
+    assert created.status_code == 200
+
+    updated = client.patch(
+        "/api/devices/aa:bb:cc:dd:ee:40",
+        json={"name": "Main TV", "type": "console", "pinned": True},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Main TV"
+    assert updated.json()["type"] == "console"
+    assert updated.json()["pinned"] is True
+
+    listed = client.get("/api/devices")
+    assert listed.status_code == 200
+    assert [device["name"] for device in listed.json()] == ["Main TV"]
