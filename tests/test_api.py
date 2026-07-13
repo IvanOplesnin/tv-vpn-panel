@@ -16,8 +16,21 @@ def test_device_api_smoke(tmp_path, monkeypatch):
         table_id="200",
     )
     monkeypatch.setattr(store, "settings", cfg)
+    monkeypatch.setattr(
+        main,
+        "settings",
+        SimpleNamespace(
+            devices_file=cfg.devices_file,
+            remotes_file=cfg.remotes_file,
+            leases_file=cfg.leases_file,
+            dry_run=True,
+            allow_backend_refresh=False,
+        ),
+    )
     monkeypatch.setattr(store, "disable_vpn_rule", lambda ip: None)
     monkeypatch.setattr(store, "apply_device_rule", lambda ip, vpn: None)
+    monkeypatch.setattr(main.shutil, "which", lambda name: "/usr/sbin/ip" if name == "ip" else None)
+    monkeypatch.setattr(main.getpass, "getuser", lambda: "pytest")
     monkeypatch.setattr(
         main,
         "get_backend_state",
@@ -53,3 +66,11 @@ def test_device_api_smoke(tmp_path, monkeypatch):
     listed = client.get("/api/devices")
     assert listed.status_code == 200
     assert [device["name"] for device in listed.json()] == ["Main TV"]
+
+    health = client.get("/api/health")
+    assert health.status_code == 200
+    assert health.json()["dry_run"] is True
+    assert health.json()["devices_file_ok"] is True
+    assert health.json()["remotes_file_ok"] is True
+    assert health.json()["ip_command_available"] is True
+    assert health.json()["service_user"] == "pytest"

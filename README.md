@@ -116,6 +116,8 @@ http://127.0.0.1:8090/docs
 curl http://192.168.50.1:8090/api/health
 ```
 
+Health includes backend status, dry-run state, runtime JSON readability, leases readability, `ip` command availability, service user, and backend refresh permission.
+
 ### List devices
 
 ```bash

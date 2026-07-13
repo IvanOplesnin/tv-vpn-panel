@@ -135,6 +135,14 @@ class HealthResponse(BaseModel):
     managed_devices_count: int
     remotes_count: int = 0
     online_remotes_count: int = 0
+    dry_run: bool = False
+    devices_file_ok: bool = False
+    remotes_file_ok: bool = False
+    leases_file_exists: bool = False
+    can_read_leases: bool = False
+    ip_command_available: bool = False
+    service_user: str | None = None
+    backend_switch_allowed: bool = False
 
 
 class WsInbound(BaseModel):

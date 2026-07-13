@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import getpass
+import json
+import os
+import shutil
 from contextlib import suppress
 from pathlib import Path
 
@@ -58,6 +62,15 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app = FastAPI(title="TV VPN Panel", version="0.1.0")
 state_lock = asyncio.Lock()
 periodic_task: asyncio.Task | None = None
+
+
+def json_list_file_ok(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        return isinstance(json.loads(path.read_text(encoding="utf-8")), list)
+    except (json.JSONDecodeError, OSError):
+        return False
 
 
 def build_device_state(device: Device) -> DeviceState:
@@ -138,6 +151,14 @@ async def health(_: None = Depends(require_http_token)) -> HealthResponse:
         managed_devices_count=len(managed_devices(devices)),
         remotes_count=len(load_remotes()),
         online_remotes_count=manager.online_remotes_count(),
+        dry_run=settings.dry_run,
+        devices_file_ok=json_list_file_ok(settings.devices_file),
+        remotes_file_ok=json_list_file_ok(settings.remotes_file),
+        leases_file_exists=settings.leases_file.exists(),
+        can_read_leases=os.access(settings.leases_file, os.R_OK),
+        ip_command_available=shutil.which("ip") is not None,
+        service_user=getpass.getuser(),
+        backend_switch_allowed=settings.allow_backend_refresh,
     )
 
 
