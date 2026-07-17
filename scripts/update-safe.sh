@@ -317,6 +317,14 @@ prepare_release() {
 
     log "Candidate commit: $new_head"
 
+    [[ ! -e "$FINAL_RELEASE" ]] ||
+        die "Release path already exists: $FINAL_RELEASE"
+
+    # Move the source tree to its permanent path before creating the venv.
+    # Console scripts inside a venv contain absolute interpreter paths.
+    mv "$BUILD_DIR" "$FINAL_RELEASE"
+    BUILD_DIR="$FINAL_RELEASE"
+
     log "Creating candidate virtual environment"
 
     python3 -m venv "${BUILD_DIR}/.venv"
@@ -426,7 +434,8 @@ prepare_release() {
         "prepared_at=${STAMP}" \
         >"${BUILD_DIR}/RELEASE_INFO"
 
-    mv "$BUILD_DIR" "$FINAL_RELEASE"
+    # The release is already located at FINAL_RELEASE.
+    # Clearing BUILD_DIR prevents cleanup after successful preparation.
     BUILD_DIR=""
 
     log "Prepared release: $FINAL_RELEASE"
