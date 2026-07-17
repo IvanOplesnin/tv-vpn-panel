@@ -121,3 +121,68 @@ def test_protected_client_cannot_be_switched():
     # Защита срабатывает до любых изменений.
     assert "route flush" not in result.stdout
     assert "iptables" not in result.stdout
+
+
+def test_unavailable_backends_use_kill_switch():
+    result = run_script(
+        "set",
+        "10.10.0.7",
+        "openvpn",
+    )
+
+    assert result.returncode == 0, result.stderr
+
+    assert (
+        "ip -4 route add unreachable default "
+        "table 201 metric 42760"
+        in result.stdout
+    )
+
+    assert (
+        "ip -4 route add unreachable default "
+        "table 202 metric 42760"
+        in result.stdout
+    )
+
+
+def test_ready_backends_install_defaults():
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "TVVPN_WG_ROUTING_DRY_RUN": "true",
+            "TVVPN_PROTECTED_WG_CLIENT": "10.10.0.5",
+            "TVVPN_TEST_TUN0_READY": "true",
+            "TVVPN_TEST_SBTUN0_READY": "true",
+        }
+    )
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT),
+            "set",
+            "10.10.0.7",
+            "openvpn",
+        ],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+    assert (
+        "ip -4 route replace default "
+        "via 10.8.0.1 dev tun0 table 201"
+        in result.stdout
+    )
+
+    assert (
+        "ip -4 route replace default "
+        "dev sbtun0 table 202"
+        in result.stdout
+    )
