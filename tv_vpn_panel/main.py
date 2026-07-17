@@ -220,6 +220,15 @@ async def api_update_wireguard_client(
     payload: WireGuardClientUpdate,
     _: None = Depends(require_http_token),
 ) -> WireGuardPeerState:
+    if (
+        payload.name is None
+        and payload.routing_mode is None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="no profile changes requested",
+        )
+
     async with state_lock:
         status = await asyncio.to_thread(get_wireguard_status)
 
@@ -250,6 +259,7 @@ async def api_update_wireguard_client(
                 public_key=peer.public_key,
                 ip=peer.ip,
                 name=payload.name,
+                routing_mode=payload.routing_mode,
             )
         except ValueError as exc:
             raise HTTPException(

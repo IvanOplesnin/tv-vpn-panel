@@ -189,7 +189,7 @@ def get_wireguard_status() -> WireGuardStatusResponse:
         if profile is None and client_ip:
             profile = profiles_by_ip.get(client_ip)
 
-        if profile is None:
+        if profile is None or not profile.name:
             display_name = (
                 f"WireGuard {client_ip}"
                 if client_ip
@@ -200,6 +200,12 @@ def get_wireguard_status() -> WireGuardStatusResponse:
             display_name = profile.name
             name_is_default = False
 
+        routing_mode = (
+            profile.routing_mode
+            if profile is not None
+            else "auto"
+        )
+
         route_ok, route_text = _probe_route(client_ip)
 
         peers.append(
@@ -208,6 +214,8 @@ def get_wireguard_status() -> WireGuardStatusResponse:
                 public_key_short=_short_key(public_key),
                 name=display_name,
                 name_is_default=name_is_default,
+                routing_mode=routing_mode,
+                routing_mode_applied=False,
                 endpoint=(
                     None
                     if endpoint_raw in {"", "(none)"}

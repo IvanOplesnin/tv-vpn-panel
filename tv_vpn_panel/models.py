@@ -176,14 +176,28 @@ class DiagnosticsResponse(BaseModel):
     route_table: str
 
 
+WireGuardRoutingMode = Literal[
+    "auto",
+    "direct",
+    "openvpn",
+    "vless",
+]
+
+
 class WireGuardClientProfile(BaseModel):
     public_key: str
     ip: str
-    name: str
+    name: str | None = None
+    routing_mode: WireGuardRoutingMode = "auto"
 
 
 class WireGuardClientUpdate(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=80,
+    )
+    routing_mode: WireGuardRoutingMode | None = None
 
 
 class WireGuardPeerState(BaseModel):
@@ -191,6 +205,8 @@ class WireGuardPeerState(BaseModel):
     public_key_short: str
     name: str | None = None
     name_is_default: bool = True
+    routing_mode: WireGuardRoutingMode = "auto"
+    routing_mode_applied: bool = False
     endpoint: str | None = None
     allowed_ips: list[str] = Field(default_factory=list)
     ip: str | None = None
