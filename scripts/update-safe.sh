@@ -291,6 +291,75 @@ print(
 PY
 }
 
+wait_for_production_wireguard() {
+    local json_file="$1"
+    local route_file="$2"
+    local expected_client="${3:-}"
+    local attempt
+    local max_attempts=15
+    local temporary_json="${json_file}.tmp"
+    local validation_output="${json_file}.validation"
+    local validation_error="${json_file}.validation-error"
+    local route_output="${route_file}.tmp"
+    local route_error="${route_file}.error"
+
+    rm -f \
+        "$temporary_json" \
+        "$validation_output" \
+        "$validation_error" \
+        "$route_output" \
+        "$route_error"
+
+    for attempt in $(seq 1 "$max_attempts"); do
+        if production_curl "/api/wireguard/clients" \
+                >"$temporary_json" 2>"${json_file}.curl-error" &&
+            validate_wireguard_json \
+                "$temporary_json" \
+                "$expected_client" \
+                >"$validation_output" 2>"$validation_error" &&
+            verify_wireguard_route \
+                >"$route_output" 2>"$route_error"
+        then
+            mv "$temporary_json" "$json_file"
+            mv "$route_output" "$route_file"
+
+            cat "$validation_output"
+            cat "$route_file"
+
+            rm -f \
+                "$validation_output" \
+                "$validation_error" \
+                "$route_error" \
+                "${json_file}.curl-error"
+
+            return 0
+        fi
+
+        log "WireGuard route validation attempt ${attempt}/${max_attempts} did not pass"
+
+        if [[ "$attempt" -lt "$max_attempts" ]]; then
+            sleep 1
+        fi
+    done
+
+    log "Last WireGuard API response:"
+
+    if [[ -s "$temporary_json" ]]; then
+        cat "$temporary_json" >&2
+    fi
+
+    if [[ -s "$validation_error" ]]; then
+        cat "$validation_error" >&2
+    fi
+
+    if [[ -s "$route_error" ]]; then
+        cat "$route_error" >&2
+    fi
+
+    die "Production WireGuard route did not stabilize"
+}
+
+
 prepare_release() {
     local new_head
     local runtime_dir
@@ -538,17 +607,12 @@ activate_release() {
 
     production_json="${BACKUP_DIR}/wireguard-production.json"
 
-    production_curl "/api/wireguard/clients" \
-        >"$production_json"
+    log "Waiting for production WireGuard route to stabilize"
 
-    validate_wireguard_json \
+    wait_for_production_wireguard \
         "$production_json" \
+        "${BACKUP_DIR}/wg-route-after.txt" \
         "$WG_CLIENT_IP"
-
-    log "Verifying WireGuard route after activation"
-
-    verify_wireguard_route |
-        tee "${BACKUP_DIR}/wg-route-after.txt"
 
     ip -4 rule show |
         tee "${BACKUP_DIR}/ip-rule-after.txt"
