@@ -29,6 +29,7 @@ from .models import (
     RemoteUpdateRequest,
     SetVpnRequest,
     ToggleResponse,
+    WireGuardStatusResponse,
     WsInbound,
     WsOutbound,
     device_type_options,
@@ -62,6 +63,7 @@ from .system_ops import (
     refresh_backend_route,
     route_table_text,
 )
+from .wireguard_status import get_wireguard_status
 from .ws import manager
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -193,6 +195,17 @@ async def diagnostics(_: None = Depends(require_http_token)) -> DiagnosticsRespo
         ip_rules=ip_rule_text(),
         route_table=route_table,
     )
+
+
+
+@app.get(
+    "/api/wireguard/clients",
+    response_model=WireGuardStatusResponse,
+)
+async def api_wireguard_clients(
+    _: None = Depends(require_http_token),
+) -> WireGuardStatusResponse:
+    return await asyncio.to_thread(get_wireguard_status)
 
 
 @app.get("/api/device-types", response_model=list[DeviceTypeInfo])
