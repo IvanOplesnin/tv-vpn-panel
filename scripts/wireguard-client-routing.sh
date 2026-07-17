@@ -30,6 +30,7 @@ ALLOW_PROTECTED="${TVVPN_ALLOW_PROTECTED_WG_ROUTING:-false}"
 
 DRY_RUN="${TVVPN_WG_ROUTING_DRY_RUN:-false}"
 TEST_IP="${TVVPN_ROUTE_TEST_IP:-1.1.1.1}"
+BACKEND_CHECK_IP="${TVVPN_BACKEND_CHECK_IP:-1.1.1.1}"
 
 
 log() {
@@ -83,28 +84,67 @@ flush_table() {
 }
 
 
-interface_has_ipv4() {
-    local interface="$1"
+require_commands() {
+    local command_name
 
+    for command_name in \
+        ip \
+        iptables \
+        ping \
+        python3 \
+        systemctl
+    do
+        command -v "$command_name" >/dev/null 2>&1 ||
+            die "Required command not found: $command_name"
+    done
+}
+
+
+require_root_for_changes() {
+    if ! is_true "$DRY_RUN" && [[ "$EUID" -ne 0 ]]; then
+        die "Run routing changes with sudo"
+    fi
+}
+
+
+openvpn_is_healthy() {
     if is_true "$DRY_RUN"; then
-        case "$interface" in
-            "$OVPN_DEV")
-                is_true "${TVVPN_TEST_TUN0_READY:-false}"
-                ;;
-            "$VLESS_DEV")
-                is_true "${TVVPN_TEST_SBTUN0_READY:-false}"
-                ;;
-            *)
-                return 0
-                ;;
-        esac
-
+        is_true "${TVVPN_TEST_TUN0_READY:-false}"
         return
     fi
 
-    ip -4 addr show dev "$interface" \
+    ip -4 addr show dev "$OVPN_DEV" \
         2>/dev/null |
-        grep -q 'inet '
+        grep -q 'inet ' ||
+        return 1
+
+    ping \
+        -I "$OVPN_DEV" \
+        -c 2 \
+        -W 2 \
+        "$BACKEND_CHECK_IP" \
+        >/dev/null 2>&1 ||
+        return 1
+}
+
+
+vless_is_healthy() {
+    if is_true "$DRY_RUN"; then
+        is_true "${TVVPN_TEST_SBTUN0_READY:-false}"
+        return
+    fi
+
+    systemctl is-active --quiet sing-box ||
+        return 1
+
+    ip link show "$VLESS_DEV" \
+        >/dev/null 2>&1 ||
+        return 1
+
+    ip -4 addr show dev "$VLESS_DEV" \
+        2>/dev/null |
+        grep -q 'inet ' ||
+        return 1
 }
 
 
@@ -162,7 +202,7 @@ prepare_openvpn_table() {
     flush_table "$OPENVPN_TABLE"
     add_common_routes "$OPENVPN_TABLE"
 
-    if interface_has_ipv4 "$OVPN_DEV"; then
+    if openvpn_is_healthy; then
         run_cmd ip -4 route replace \
             "$OVPN_NET" \
             dev "$OVPN_DEV" \
@@ -189,7 +229,7 @@ prepare_vless_table() {
     flush_table "$VLESS_TABLE"
     add_common_routes "$VLESS_TABLE"
 
-    if interface_has_ipv4 "$VLESS_DEV"; then
+    if vless_is_healthy; then
         run_cmd ip -4 route replace \
             "$VLESS_NET" \
             dev "$VLESS_DEV" \
@@ -432,6 +472,8 @@ USAGE
 
 command_name="${1:-}"
 
+require_commands
+
 case "$command_name" in
     prepare)
         [[ "$#" -eq 1 ]] || {
@@ -439,6 +481,7 @@ case "$command_name" in
             exit 2
         }
 
+        require_root_for_changes
         prepare_tables
         ;;
 
@@ -448,6 +491,7 @@ case "$command_name" in
             exit 2
         }
 
+        require_root_for_changes
         set_mode "$2" "$3"
         ;;
 
@@ -457,6 +501,7 @@ case "$command_name" in
             exit 2
         }
 
+        require_root_for_changes
         set_mode "$2" auto
         ;;
 
