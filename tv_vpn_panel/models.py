@@ -230,6 +230,16 @@ class WireGuardStatusResponse(BaseModel):
     error: str | None = None
 
 
+class WireGuardNameSyncResponse(BaseModel):
+    ok: bool = True
+    config_file: str
+    discovered: int
+    with_names: int
+    updated: int
+    preserved: int
+    skipped_without_name: int
+
+
 class WsInbound(BaseModel):
     type: Literal["hello", "ping", "get_state", "set_vpn", "toggle_vpn", "sync"]
     remote_id: str | None = None
