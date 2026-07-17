@@ -186,3 +186,55 @@ def test_ready_backends_install_defaults():
         "dev sbtun0 table 202"
         in result.stdout
     )
+
+
+def test_client_is_not_protected_by_default():
+    environment = os.environ.copy()
+
+    environment.update(
+        {
+            "TVVPN_WG_ROUTING_DRY_RUN": "true",
+            "TVVPN_TEST_TUN0_READY": "false",
+            "TVVPN_TEST_SBTUN0_READY": "false",
+        }
+    )
+
+    environment.pop(
+        "TVVPN_PROTECTED_WG_CLIENT",
+        None,
+    )
+    environment.pop(
+        "TVVPN_ALLOW_PROTECTED_WG_ROUTING",
+        None,
+    )
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT),
+            "set",
+            "10.10.0.5",
+            "direct",
+        ],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+    assert (
+        "ip -4 rule add from "
+        "10.10.0.5/32 lookup main "
+        "priority 31005"
+        in result.stdout
+    )
+
+    assert (
+        "Protected WireGuard client"
+        not in result.stderr
+    )

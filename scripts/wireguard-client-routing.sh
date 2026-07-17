@@ -25,7 +25,7 @@ VLESS_TABLE="${TVVPN_VLESS_TABLE:-202}"
 # но ниже специального fwmark-правила 10000.
 PRIORITY_BASE="${TVVPN_WG_PRIORITY_BASE:-31000}"
 
-PROTECTED_CLIENT="${TVVPN_PROTECTED_WG_CLIENT:-10.10.0.5}"
+PROTECTED_CLIENT="${TVVPN_PROTECTED_WG_CLIENT:-}"
 ALLOW_PROTECTED="${TVVPN_ALLOW_PROTECTED_WG_ROUTING:-false}"
 
 DRY_RUN="${TVVPN_WG_ROUTING_DRY_RUN:-false}"
@@ -407,6 +407,7 @@ set_mode() {
     priority=$((PRIORITY_BASE + last_octet))
 
     if
+        [[ -n "$PROTECTED_CLIENT" ]] &&
         [[ "$client_ip" == "$PROTECTED_CLIENT" ]] &&
         [[ "$mode" != "auto" ]] &&
         ! is_true "$ALLOW_PROTECTED"
@@ -459,7 +460,8 @@ Usage:
 
 Environment:
   TVVPN_PROTECTED_WG_CLIENT
-      Protected SSH client. Default: 10.10.0.5
+      Optional client restricted to auto mode.
+      Empty by default; normal clients are not blocked.
 
   TVVPN_ALLOW_PROTECTED_WG_ROUTING=true
       Explicitly allow switching the protected client.
