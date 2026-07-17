@@ -8,6 +8,10 @@ from .config import settings
 from .models import WireGuardPeerState, WireGuardStatusResponse
 from .system_ops import safe_run
 from .wireguard_registry import load_wireguard_profiles
+from .wireguard_routing import (
+    get_wireguard_rule_text,
+    routing_mode_is_applied,
+)
 
 
 WG_INTERFACE = "wg0"
@@ -139,6 +143,7 @@ def get_wireguard_status() -> WireGuardStatusResponse:
         profile.ip: profile
         for profile in profiles
     }
+    rule_text = get_wireguard_rule_text()
 
     # Первая строка описывает интерфейс wg0.
     for line in lines[1:]:
@@ -215,7 +220,15 @@ def get_wireguard_status() -> WireGuardStatusResponse:
                 name=display_name,
                 name_is_default=name_is_default,
                 routing_mode=routing_mode,
-                routing_mode_applied=False,
+                routing_mode_applied=(
+                    routing_mode_is_applied(
+                        client_ip,
+                        routing_mode,
+                        route_ok,
+                        route_text,
+                        rule_text,
+                    )
+                ),
                 endpoint=(
                     None
                     if endpoint_raw in {"", "(none)"}

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 
-def test_wireguard_client_profile_api(monkeypatch):
+def test_wireguard_client_profile_api(
+    monkeypatch,
+):
     from fastapi.testclient import TestClient
 
     from tv_vpn_panel import main
@@ -9,15 +11,19 @@ def test_wireguard_client_profile_api(monkeypatch):
         WireGuardPeerState,
         WireGuardStatusResponse,
     )
+    from tv_vpn_panel.wireguard_routing import (
+        WireGuardRoutingError,
+    )
 
     saved: dict[str, str] = {}
+    applied_mode = {"value": "auto"}
+    apply_calls: list[tuple[str, str]] = []
 
     def fake_status() -> WireGuardStatusResponse:
         name = saved.get(
             "name",
             "WireGuard 10.10.0.6",
         )
-
         routing_mode = saved.get(
             "routing_mode",
             "auto",
@@ -34,9 +40,14 @@ def test_wireguard_client_profile_api(monkeypatch):
                     public_key="peer-key-one",
                     public_key_short="peer-key-one",
                     name=name,
-                    name_is_default="name" not in saved,
+                    name_is_default=(
+                        "name" not in saved
+                    ),
                     routing_mode=routing_mode,
-                    routing_mode_applied=False,
+                    routing_mode_applied=(
+                        routing_mode
+                        == applied_mode["value"]
+                    ),
                     allowed_ips=["10.10.0.6/32"],
                     ip="10.10.0.6",
                     status="idle",
@@ -66,6 +77,22 @@ def test_wireguard_client_profile_api(monkeypatch):
         if routing_mode is not None:
             saved["routing_mode"] = routing_mode
 
+    def fake_apply(
+        client_ip: str,
+        routing_mode: str,
+    ) -> str:
+        apply_calls.append(
+            (client_ip, routing_mode)
+        )
+
+        if routing_mode == "vless":
+            raise WireGuardRoutingError(
+                "test routing failure"
+            )
+
+        applied_mode["value"] = routing_mode
+        return "applied"
+
     monkeypatch.setattr(
         main,
         "get_wireguard_status",
@@ -76,6 +103,11 @@ def test_wireguard_client_profile_api(monkeypatch):
         "upsert_wireguard_profile",
         fake_upsert,
     )
+    monkeypatch.setattr(
+        main,
+        "apply_wireguard_routing_mode",
+        fake_apply,
+    )
 
     client = TestClient(main.app)
 
@@ -85,8 +117,13 @@ def test_wireguard_client_profile_api(monkeypatch):
     )
 
     assert renamed.status_code == 200
-    assert renamed.json()["name"] == "Bedroom tablet"
-    assert renamed.json()["routing_mode"] == "auto"
+    assert renamed.json()["name"] == (
+        "Bedroom tablet"
+    )
+    assert renamed.json()["routing_mode"] == (
+        "auto"
+    )
+    assert apply_calls == []
 
     changed_mode = client.patch(
         "/api/wireguard/clients/10.10.0.6",
@@ -94,12 +131,24 @@ def test_wireguard_client_profile_api(monkeypatch):
     )
 
     assert changed_mode.status_code == 200
-    assert changed_mode.json()["name"] == "Bedroom tablet"
-    assert changed_mode.json()["routing_mode"] == "direct"
-    assert (
-        changed_mode.json()["routing_mode_applied"]
-        is False
+    assert changed_mode.json()["routing_mode"] == (
+        "direct"
     )
+    assert (
+        changed_mode.json()[
+            "routing_mode_applied"
+        ]
+        is True
+    )
+
+    failed_mode = client.patch(
+        "/api/wireguard/clients/10.10.0.6",
+        json={"routing_mode": "vless"},
+    )
+
+    assert failed_mode.status_code == 409
+    assert saved["routing_mode"] == "direct"
+    assert applied_mode["value"] == "direct"
 
     empty_update = client.patch(
         "/api/wireguard/clients/10.10.0.6",

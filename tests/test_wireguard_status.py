@@ -60,6 +60,14 @@ def test_wireguard_status_parses_peers(monkeypatch):
         "load_wireguard_profiles",
         lambda: [],
     )
+    monkeypatch.setattr(
+        wireguard_status,
+        "get_wireguard_rule_text",
+        lambda: (
+            "32765: from 10.10.0.0/24 "
+            "lookup 200\n"
+        ),
+    )
 
     response = wireguard_status.get_wireguard_status()
 
@@ -75,6 +83,7 @@ def test_wireguard_status_parses_peers(monkeypatch):
     assert first.transfer_tx_bytes == 2000
     assert first.persistent_keepalive_seconds == 25
     assert first.route_probe_ok is True
+    assert first.routing_mode_applied is True
     assert "dev tun0 table 200" in (first.route_probe or "")
 
     second = response.peers[1]
