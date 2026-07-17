@@ -176,6 +176,32 @@ class DiagnosticsResponse(BaseModel):
     route_table: str
 
 
+class WireGuardPeerState(BaseModel):
+    public_key: str
+    public_key_short: str
+    endpoint: str | None = None
+    allowed_ips: list[str] = Field(default_factory=list)
+    ip: str | None = None
+    status: Literal["online", "idle", "never"] = "never"
+    latest_handshake_unix: int = 0
+    latest_handshake_at: str | None = None
+    latest_handshake_age_seconds: int | None = None
+    transfer_rx_bytes: int = 0
+    transfer_tx_bytes: int = 0
+    persistent_keepalive_seconds: int = 0
+    route_probe_ok: bool = False
+    route_probe: str | None = None
+
+
+class WireGuardStatusResponse(BaseModel):
+    ok: bool = True
+    interface: str = "wg0"
+    generated_at: str
+    online_threshold_seconds: int = 180
+    peers: list[WireGuardPeerState] = Field(default_factory=list)
+    error: str | None = None
+
+
 class WsInbound(BaseModel):
     type: Literal["hello", "ping", "get_state", "set_vpn", "toggle_vpn", "sync"]
     remote_id: str | None = None
