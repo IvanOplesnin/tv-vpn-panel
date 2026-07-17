@@ -30,6 +30,7 @@ from .models import (
     SetVpnRequest,
     ToggleResponse,
     WireGuardClientUpdate,
+    WireGuardNameSyncResponse,
     WireGuardPeerState,
     WireGuardStatusResponse,
     WsInbound,
@@ -65,6 +66,7 @@ from .system_ops import (
     refresh_backend_route,
     route_table_text,
 )
+from .wireguard_names import sync_wireguard_client_names
 from .wireguard_registry import upsert_wireguard_profile
 from .wireguard_routing import (
     WireGuardRoutingError,
@@ -158,6 +160,24 @@ async def index(request: Request) -> HTMLResponse:
     )
 
 
+@app.get(
+    "/wireguard",
+    response_class=HTMLResponse,
+)
+async def wireguard_page(
+    request: Request,
+) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "wireguard.html",
+        {
+            "api_token_enabled": bool(
+                settings.api_token
+            ),
+        },
+    )
+
+
 @app.get("/api/health", response_model=HealthResponse)
 async def health(_: None = Depends(require_http_token)) -> HealthResponse:
     devices = load_devices()
@@ -213,6 +233,44 @@ async def api_wireguard_clients(
     _: None = Depends(require_http_token),
 ) -> WireGuardStatusResponse:
     return await asyncio.to_thread(get_wireguard_status)
+
+
+@app.post(
+    "/api/wireguard/clients/sync-names",
+    response_model=WireGuardNameSyncResponse,
+)
+async def api_sync_wireguard_names(
+    _: None = Depends(require_http_token),
+) -> WireGuardNameSyncResponse:
+    async with state_lock:
+        try:
+            return await asyncio.to_thread(
+                sync_wireguard_client_names
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "WireGuard configuration "
+                    f"not found: {exc.filename}"
+                ),
+            ) from exc
+        except PermissionError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Cannot read WireGuard "
+                    f"configuration: {exc.filename}"
+                ),
+            ) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "WireGuard name sync failed: "
+                    f"{exc}"
+                ),
+            ) from exc
 
 
 @app.patch(

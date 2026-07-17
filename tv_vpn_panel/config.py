@@ -31,6 +31,12 @@ class Settings:
             "/opt/tv-vpn-panel/wireguard-clients.json",
         )
     )
+    wireguard_config_file: Path = Path(
+        os.getenv(
+            "TVVPN_WIREGUARD_CONFIG_FILE",
+            "/etc/wireguard/wg0.conf",
+        )
+    )
     backend_switch_script: Path = Path(
         os.getenv("TVVPN_BACKEND_SWITCH_SCRIPT", "/usr/local/sbin/vpn-backend-switch.sh")
     )

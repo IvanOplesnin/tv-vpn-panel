@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>WireGuard-клиенты — TV VPN Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 1400px;
+      margin: 30px auto;
+      padding: 0 16px;
+      background: #111;
+      color: #eee;
+    }
+    h1 { margin-bottom: 6px; }
+    .hint {
+      color: #aaa;
+      line-height: 1.45;
+      margin-bottom: 18px;
+    }
+    .toolbar, .section {
+      background: #1b1b1b;
+      border-radius: 12px;
+      padding: 14px;
+      margin: 14px 0;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #1b1b1b;
+      border-radius: 12px;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+    th, td {
+      padding: 12px;
+      border-bottom: 1px solid #333;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #222; }
+    button {
+      padding: 8px 14px;
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 700;
+      margin: 2px;
+    }
+    button:disabled {
+      cursor: default;
+      opacity: 0.45;
+    }
+    input, select {
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid #555;
+      background: #222;
+      color: #eee;
+      margin: 4px 0;
+    }
+    select { min-width: 190px; }
+    .primary {
+      background: #2ecc71;
+      color: #041b0d;
+    }
+    .secondary {
+      background: #555;
+      color: white;
+    }
+    .warning {
+      background: #e67e22;
+      color: #211000;
+    }
+    .small {
+      color: #999;
+      font-size: 0.88em;
+    }
+    .route {
+      margin-top: 6px;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+    .pill {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #333;
+      font-weight: 700;
+    }
+    .online {
+      background: #2ecc71;
+      color: #041b0d;
+    }
+    .idle {
+      background: #e67e22;
+      color: #211000;
+    }
+    .never {
+      background: #555;
+      color: white;
+    }
+    .applied {
+      color: #2ecc71;
+      font-weight: 700;
+    }
+    .not-applied {
+      color: #e74c3c;
+      font-weight: 700;
+    }
+    .error {
+      color: #e74c3c;
+      white-space: pre-wrap;
+    }
+    .success {
+      color: #2ecc71;
+      white-space: pre-wrap;
+    }
+    code {
+      background: #222;
+      padding: 2px 5px;
+      border-radius: 5px;
+    }
+    @media (max-width: 900px) {
+      table, thead, tbody, th, td, tr {
+        display: block;
+      }
+      th { display: none; }
+      tr {
+        border-bottom: 1px solid #444;
+        padding: 10px;
+      }
+      td {
+        border: 0;
+        padding: 6px 0;
+      }
+      td::before {
+        content: attr(data-label);
+        color: #aaa;
+        display: block;
+        font-size: 0.82em;
+      }
+      select {
+        min-width: 0;
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>WireGuard-клиенты</h1>
+
+  <div class="hint">
+    Имена загружаются из комментариев файла
+    <code>/etc/wireguard/wg0.conf</code>.
+    Переключение меняет маршрут интернет-трафика выбранного клиента,
+    но не перезапускает <code>wg0</code>.
+  </div>
+
+  <div class="toolbar">
+    <div class="row">
+      <button class="secondary" onclick="location.href='/'">
+        ← Основная панель
+      </button>
+      <button class="secondary" onclick="loadClients()">
+        Обновить
+      </button>
+      <button class="primary" onclick="syncNames()">
+        Считать имена из wg0.conf
+      </button>
+    </div>
+    <div id="syncResult" class="small"></div>
+  </div>
+
+  {% if api_token_enabled %}
+  <div class="toolbar">
+    <div class="row">
+      <label>
+        API token:
+        <input id="apiToken" type="password" placeholder="token">
+      </label>
+      <button class="secondary" onclick="saveToken()">
+        Сохранить
+      </button>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="section">
+    <div id="pageError" class="error"></div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Клиент</th>
+          <th>Статус</th>
+          <th>Трафик</th>
+          <th>Маршрутизация</th>
+          <th>Фактический маршрут</th>
+          <th>Действие</th>
+        </tr>
+      </thead>
+      <tbody id="clientsBody"></tbody>
+    </table>
+  </div>
+
+<script>
+const apiTokenEnabled = {{ "true" if api_token_enabled else "false" }};
+let clients = [];
+
+function token() {
+  return localStorage.getItem('tvvpn_api_token') || '';
+}
+
+function authHeaders() {
+  const result = {'Content-Type': 'application/json'};
+  const currentToken = token();
+
+  if (currentToken) {
+    result['X-API-Token'] = currentToken;
+  }
+
+  return result;
+}
+
+function saveToken() {
+  const input = document.getElementById('apiToken');
+
+  if (input) {
+    localStorage.setItem(
+      'tvvpn_api_token',
+      input.value
+    );
+  }
+
+  loadClients();
+}
+
+async function api(path, options={}) {
+  const query = token()
+    ? `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token())}`
+    : path;
+
+  const response = await fetch(
+    query,
+    {
+      ...options,
+      headers: {
+        ...authHeaders(),
+        ...(options.headers || {}),
+      },
+    }
+  );
+
+  const text = await response.text();
+  let payload = null;
+
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch (_) {
+      payload = null;
+    }
+  }
+
+  if (!response.ok) {
+    const detail = payload?.detail || text || `HTTP ${response.status}`;
+    throw new Error(detail);
+  }
+
+  return payload;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(
+    /[&<>'"]/g,
+    character => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      "'": '&#39;',
+      '"': '&quot;',
+    })[character]
+  );
+}
+
+function safeId(value) {
+  return String(value).replace(
+    /[^a-zA-Z0-9_-]/g,
+    '_'
+  );
+}
+
+function humanBytes(value) {
+  let bytes = Number(value || 0);
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let unitIndex = 0;
+
+  while (
+    bytes >= 1024
+    && unitIndex < units.length - 1
+  ) {
+    bytes /= 1024;
+    unitIndex += 1;
+  }
+
+  const digits = unitIndex === 0 ? 0 : 1;
+  return `${bytes.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function handshakeText(client) {
+  const age = client.latest_handshake_age_seconds;
+
+  if (age === null || age === undefined) {
+    return 'никогда';
+  }
+
+  if (age < 60) {
+    return `${age} сек. назад`;
+  }
+
+  if (age < 3600) {
+    return `${Math.floor(age / 60)} мин. назад`;
+  }
+
+  if (age < 86400) {
+    return `${Math.floor(age / 3600)} ч. назад`;
+  }
+
+  return `${Math.floor(age / 86400)} дн. назад`;
+}
+
+function modeLabel(mode) {
+  return {
+    auto: 'Авто — table 200',
+    direct: 'Без VPN — eth0',
+    openvpn: 'OpenVPN — tun0',
+    vless: 'VLESS — sbtun0',
+  }[mode] || mode;
+}
+
+function modeOptions(selectedMode) {
+  return [
+    ['auto', 'Авто — активный VPN backend'],
+    ['direct', 'Без VPN — напрямую через eth0'],
+    ['openvpn', 'OpenVPN — закрепить за tun0'],
+    ['vless', 'VLESS — закрепить за sbtun0'],
+  ].map(
+    ([value, label]) => (
+      `<option value="${value}" ${value === selectedMode ? 'selected' : ''}>`
+      + `${escapeHtml(label)}</option>`
+    )
+  ).join('');
+}
+
+function updateApplyButton(clientIp) {
+  const key = safeId(clientIp);
+  const select = document.getElementById(`wg-mode-${key}`);
+  const button = document.getElementById(`wg-apply-${key}`);
+  const client = clients.find(item => item.ip === clientIp);
+
+  if (!select || !button || !client) {
+    return;
+  }
+
+  button.disabled = select.value === client.routing_mode;
+}
+
+function renderClients() {
+  const body = document.getElementById('clientsBody');
+  body.innerHTML = '';
+
+  for (const client of clients) {
+    const key = safeId(client.ip || client.public_key_short);
+    const status = client.status || 'never';
+    const name = client.name || `WireGuard ${client.ip || ''}`;
+    const appliedClass = client.routing_mode_applied
+      ? 'applied'
+      : 'not-applied';
+    const appliedText = client.routing_mode_applied
+      ? 'применён'
+      : 'не совпадает';
+
+    const row = document.createElement('tr');
+
+    row.innerHTML = `
+      <td data-label="Клиент">
+        <strong>${escapeHtml(name)}</strong><br>
+        <span>${escapeHtml(client.ip || 'без IP')}</span><br>
+        <span class="small">${escapeHtml(client.public_key_short || '')}</span>
+      </td>
+
+      <td data-label="Статус">
+        <span class="pill ${escapeHtml(status)}">${escapeHtml(status)}</span><br>
+        <span class="small">Handshake: ${escapeHtml(handshakeText(client))}</span><br>
+        <span class="small">${escapeHtml(client.endpoint || 'endpoint отсутствует')}</span>
+      </td>
+
+      <td data-label="Трафик">
+        RX: ${escapeHtml(humanBytes(client.transfer_rx_bytes))}<br>
+        TX: ${escapeHtml(humanBytes(client.transfer_tx_bytes))}
+      </td>
+
+      <td data-label="Маршрутизация">
+        <strong>${escapeHtml(modeLabel(client.routing_mode))}</strong><br>
+        <span class="${appliedClass}">${appliedText}</span>
+      </td>
+
+      <td data-label="Фактический маршрут">
+        <div class="small route">${escapeHtml(client.route_probe || 'маршрут недоступен')}</div>
+      </td>
+
+      <td data-label="Действие">
+        <select
+          id="wg-mode-${key}"
+          onchange="updateApplyButton('${escapeHtml(client.ip)}')"
+        >
+          ${modeOptions(client.routing_mode)}
+        </select>
+        <button
+          id="wg-apply-${key}"
+          class="warning"
+          disabled
+          onclick="applyMode('${escapeHtml(client.ip)}')"
+        >
+          Применить
+        </button>
+      </td>
+    `;
+
+    body.appendChild(row);
+  }
+}
+
+async function loadClients(showError=true) {
+  try {
+    document.getElementById('pageError').textContent = '';
+
+    const response = await api(
+      '/api/wireguard/clients'
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        response.error || 'WireGuard status unavailable'
+      );
+    }
+
+    clients = response.peers || [];
+    renderClients();
+  } catch (error) {
+    if (showError) {
+      document.getElementById('pageError').textContent = error.message;
+    }
+  }
+}
+
+async function syncNames() {
+  const resultElement = document.getElementById('syncResult');
+
+  try {
+    resultElement.className = 'small';
+    resultElement.textContent = 'Синхронизация...';
+
+    const result = await api(
+      '/api/wireguard/clients/sync-names',
+      {
+        method: 'POST',
+      }
+    );
+
+    resultElement.className = 'success';
+    resultElement.textContent = (
+      `Найдено: ${result.discovered}; `
+      + `с именами: ${result.with_names}; `
+      + `обновлено: ${result.updated}; `
+      + `сохранено без изменений: ${result.preserved}; `
+      + `без имени: ${result.skipped_without_name}`
+    );
+
+    await loadClients();
+  } catch (error) {
+    resultElement.className = 'error';
+    resultElement.textContent = error.message;
+  }
+}
+
+async function applyMode(clientIp) {
+  const key = safeId(clientIp);
+  const select = document.getElementById(`wg-mode-${key}`);
+  const button = document.getElementById(`wg-apply-${key}`);
+  const client = clients.find(item => item.ip === clientIp);
+
+  if (!select || !button || !client) {
+    return;
+  }
+
+  const newMode = select.value;
+
+  if (newMode === client.routing_mode) {
+    return;
+  }
+
+  const confirmed = confirm(
+    `Переключить ${client.name || clientIp}\n`
+    + `${modeLabel(client.routing_mode)} → ${modeLabel(newMode)}?`
+  );
+
+  if (!confirmed) {
+    select.value = client.routing_mode;
+    updateApplyButton(clientIp);
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = 'Применяю...';
+
+  try {
+    const updated = await api(
+      `/api/wireguard/clients/${encodeURIComponent(clientIp)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          routing_mode: newMode,
+        }),
+      }
+    );
+
+    const index = clients.findIndex(
+      item => item.ip === clientIp
+    );
+
+    if (index >= 0) {
+      clients[index] = updated;
+    }
+
+    renderClients();
+  } catch (error) {
+    alert(error.message);
+    await loadClients();
+  }
+}
+
+if (apiTokenEnabled) {
+  const input = document.getElementById('apiToken');
+
+  if (input) {
+    input.value = token();
+  }
+}
+
+loadClients();
+</script>
+</body>
+</html>
