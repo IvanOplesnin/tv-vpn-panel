@@ -176,9 +176,21 @@ class DiagnosticsResponse(BaseModel):
     route_table: str
 
 
+class WireGuardClientProfile(BaseModel):
+    public_key: str
+    ip: str
+    name: str
+
+
+class WireGuardClientUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
 class WireGuardPeerState(BaseModel):
     public_key: str
     public_key_short: str
+    name: str | None = None
+    name_is_default: bool = True
     endpoint: str | None = None
     allowed_ips: list[str] = Field(default_factory=list)
     ip: str | None = None

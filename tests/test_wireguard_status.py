@@ -55,6 +55,11 @@ def test_wireguard_status_parses_peers(monkeypatch):
         "settings",
         SimpleNamespace(route_test_ip="8.8.8.8"),
     )
+    monkeypatch.setattr(
+        wireguard_status,
+        "load_wireguard_profiles",
+        lambda: [],
+    )
 
     response = wireguard_status.get_wireguard_status()
 
