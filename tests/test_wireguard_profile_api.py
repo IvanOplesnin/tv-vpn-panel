@@ -18,6 +18,8 @@ def test_wireguard_client_profile_api(
     saved: dict[str, str] = {}
     applied_mode = {"value": "auto"}
     apply_calls: list[tuple[str, str]] = []
+    fail_after_apply = {"value": False}
+    fail_persistence = {"value": False}
 
     def fake_status() -> WireGuardStatusResponse:
         name = saved.get(
@@ -71,6 +73,11 @@ def test_wireguard_client_profile_api(
         assert public_key == "peer-key-one"
         assert ip == "10.10.0.6"
 
+        if fail_persistence["value"]:
+            raise ValueError(
+                "test persistence failure"
+            )
+
         if name is not None:
             saved["name"] = name
 
@@ -84,13 +91,14 @@ def test_wireguard_client_profile_api(
         apply_calls.append(
             (client_ip, routing_mode)
         )
+        applied_mode["value"] = routing_mode
 
-        if routing_mode == "vless":
+        if fail_after_apply["value"]:
+            fail_after_apply["value"] = False
             raise WireGuardRoutingError(
-                "test routing failure"
+                "verification failed after apply"
             )
 
-        applied_mode["value"] = routing_mode
         return "applied"
 
     monkeypatch.setattr(
@@ -120,9 +128,6 @@ def test_wireguard_client_profile_api(
     assert renamed.json()["name"] == (
         "Bedroom tablet"
     )
-    assert renamed.json()["routing_mode"] == (
-        "auto"
-    )
     assert apply_calls == []
 
     changed_mode = client.patch(
@@ -141,14 +146,35 @@ def test_wireguard_client_profile_api(
         is True
     )
 
-    failed_mode = client.patch(
+    fail_after_apply["value"] = True
+
+    failed_verification = client.patch(
         "/api/wireguard/clients/10.10.0.6",
         json={"routing_mode": "vless"},
     )
 
-    assert failed_mode.status_code == 409
+    assert failed_verification.status_code == 409
     assert saved["routing_mode"] == "direct"
     assert applied_mode["value"] == "direct"
+    assert apply_calls[-2:] == [
+        ("10.10.0.6", "vless"),
+        ("10.10.0.6", "direct"),
+    ]
+
+    fail_persistence["value"] = True
+
+    failed_save = client.patch(
+        "/api/wireguard/clients/10.10.0.6",
+        json={"routing_mode": "openvpn"},
+    )
+
+    assert failed_save.status_code == 400
+    assert saved["routing_mode"] == "direct"
+    assert applied_mode["value"] == "direct"
+    assert apply_calls[-2:] == [
+        ("10.10.0.6", "openvpn"),
+        ("10.10.0.6", "direct"),
+    ]
 
     empty_update = client.patch(
         "/api/wireguard/clients/10.10.0.6",
