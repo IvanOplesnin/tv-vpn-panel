@@ -66,6 +66,10 @@ from .system_ops import (
     route_table_text,
 )
 from .wireguard_registry import upsert_wireguard_profile
+from .wireguard_routing import (
+    WireGuardRoutingError,
+    apply_wireguard_routing_mode,
+)
 from .wireguard_status import get_wireguard_status
 from .ws import manager
 
@@ -229,13 +233,27 @@ async def api_update_wireguard_client(
             detail="no profile changes requested",
         )
 
+    if (
+        payload.name is not None
+        and not payload.name.strip()
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="name must not be empty",
+        )
+
     async with state_lock:
-        status = await asyncio.to_thread(get_wireguard_status)
+        status = await asyncio.to_thread(
+            get_wireguard_status
+        )
 
         if not status.ok:
             raise HTTPException(
                 status_code=503,
-                detail=status.error or "WireGuard status unavailable",
+                detail=(
+                    status.error
+                    or "WireGuard status unavailable"
+                ),
             )
 
         peer = next(
@@ -253,6 +271,23 @@ async def api_update_wireguard_client(
                 detail="WireGuard client not found",
             )
 
+        previous_mode = peer.routing_mode
+        routing_was_applied = False
+
+        if payload.routing_mode is not None:
+            try:
+                await asyncio.to_thread(
+                    apply_wireguard_routing_mode,
+                    peer.ip,
+                    payload.routing_mode,
+                )
+                routing_was_applied = True
+            except WireGuardRoutingError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=str(exc),
+                ) from exc
+
         try:
             await asyncio.to_thread(
                 upsert_wireguard_profile,
@@ -262,13 +297,40 @@ async def api_update_wireguard_client(
                 routing_mode=payload.routing_mode,
             )
         except ValueError as exc:
+            if routing_was_applied:
+                with suppress(WireGuardRoutingError):
+                    await asyncio.to_thread(
+                        apply_wireguard_routing_mode,
+                        peer.ip,
+                        previous_mode,
+                    )
+
             raise HTTPException(
                 status_code=400,
                 detail=str(exc),
             ) from exc
+        except Exception:
+            if routing_was_applied:
+                with suppress(WireGuardRoutingError):
+                    await asyncio.to_thread(
+                        apply_wireguard_routing_mode,
+                        peer.ip,
+                        previous_mode,
+                    )
+
+            raise
 
         refreshed = await asyncio.to_thread(
             get_wireguard_status
+        )
+
+    if not refreshed.ok:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                refreshed.error
+                or "WireGuard status unavailable"
+            ),
         )
 
     updated_peer = next(

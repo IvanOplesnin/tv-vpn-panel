@@ -35,6 +35,40 @@ class Settings:
         os.getenv("TVVPN_BACKEND_SWITCH_SCRIPT", "/usr/local/sbin/vpn-backend-switch.sh")
     )
 
+    wireguard_routing_script: Path = Path(
+        os.getenv(
+            "TVVPN_WIREGUARD_ROUTING_SCRIPT",
+            str(
+                Path(__file__).resolve().parents[1]
+                / "scripts"
+                / "wireguard-client-routing.sh"
+            ),
+        )
+    )
+    wireguard_routing_priority_base: int = int(
+        os.getenv("TVVPN_WG_PRIORITY_BASE", "31000")
+    )
+    wireguard_openvpn_table: str = os.getenv(
+        "TVVPN_OPENVPN_TABLE",
+        "201",
+    )
+    wireguard_vless_table: str = os.getenv(
+        "TVVPN_VLESS_TABLE",
+        "202",
+    )
+    wireguard_direct_interface: str = os.getenv(
+        "TVVPN_LAN_DEV",
+        "eth0",
+    )
+    wireguard_openvpn_interface: str = os.getenv(
+        "TVVPN_OVPN_DEV",
+        "tun0",
+    )
+    wireguard_vless_interface: str = os.getenv(
+        "TVVPN_VLESS_DEV",
+        "sbtun0",
+    )
+
     # Empty token means local/trusted LAN mode. Set a token before exposing outside the TV LAN.
     api_token: str = os.getenv("TVVPN_API_TOKEN", "")
 
