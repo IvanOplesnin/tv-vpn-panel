@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from .config import settings
 from .models import WireGuardPeerState, WireGuardStatusResponse
 from .system_ops import safe_run
+from .wireguard_registry import load_wireguard_profiles
 
 
 WG_INTERFACE = "wg0"
@@ -129,6 +130,16 @@ def get_wireguard_status() -> WireGuardStatusResponse:
     now_unix = int(time.time())
     peers: list[WireGuardPeerState] = []
 
+    profiles = load_wireguard_profiles()
+    profiles_by_key = {
+        profile.public_key: profile
+        for profile in profiles
+    }
+    profiles_by_ip = {
+        profile.ip: profile
+        for profile in profiles
+    }
+
     # Первая строка описывает интерфейс wg0.
     for line in lines[1:]:
         columns = line.split("\t")
@@ -173,12 +184,30 @@ def get_wireguard_status() -> WireGuardStatusResponse:
                 else "idle"
             )
 
+        profile = profiles_by_key.get(public_key)
+
+        if profile is None and client_ip:
+            profile = profiles_by_ip.get(client_ip)
+
+        if profile is None:
+            display_name = (
+                f"WireGuard {client_ip}"
+                if client_ip
+                else _short_key(public_key)
+            )
+            name_is_default = True
+        else:
+            display_name = profile.name
+            name_is_default = False
+
         route_ok, route_text = _probe_route(client_ip)
 
         peers.append(
             WireGuardPeerState(
                 public_key=public_key,
                 public_key_short=_short_key(public_key),
+                name=display_name,
+                name_is_default=name_is_default,
                 endpoint=(
                     None
                     if endpoint_raw in {"", "(none)"}

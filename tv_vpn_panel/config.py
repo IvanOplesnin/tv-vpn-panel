@@ -25,6 +25,12 @@ class Settings:
     devices_file: Path = Path(os.getenv("TVVPN_DEVICES_FILE", "/opt/tv-vpn-panel/devices.json"))
     remotes_file: Path = Path(os.getenv("TVVPN_REMOTES_FILE", "/opt/tv-vpn-panel/remotes.json"))
     leases_file: Path = Path(os.getenv("TVVPN_LEASES_FILE", "/var/lib/misc/dnsmasq.leases"))
+    wireguard_clients_file: Path = Path(
+        os.getenv(
+            "TVVPN_WIREGUARD_CLIENTS_FILE",
+            "/opt/tv-vpn-panel/wireguard-clients.json",
+        )
+    )
     backend_switch_script: Path = Path(
         os.getenv("TVVPN_BACKEND_SWITCH_SCRIPT", "/usr/local/sbin/vpn-backend-switch.sh")
     )

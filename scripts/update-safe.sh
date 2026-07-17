@@ -346,6 +346,7 @@ prepare_release() {
 
     printf '[]\n' > "${runtime_dir}/devices.json"
     printf '[]\n' > "${runtime_dir}/remotes.json"
+    printf '[]\n' > "${runtime_dir}/wireguard-clients.json"
     : > "${runtime_dir}/dnsmasq.leases"
 
     log "Running unit tests in dry-run mode"
@@ -356,6 +357,7 @@ prepare_release() {
         TVVPN_ENABLE_PERIODIC_SYNC=false \
         TVVPN_DEVICES_FILE="${runtime_dir}/devices.json" \
         TVVPN_REMOTES_FILE="${runtime_dir}/remotes.json" \
+        TVVPN_WIREGUARD_CLIENTS_FILE="${runtime_dir}/wireguard-clients.json" \
         TVVPN_LEASES_FILE="${runtime_dir}/dnsmasq.leases" \
         "${BUILD_DIR}/.venv/bin/python" \
         -m pytest \
@@ -382,6 +384,7 @@ prepare_release() {
         TVVPN_PORT="$TEST_PORT" \
         TVVPN_DEVICES_FILE="${runtime_dir}/devices.json" \
         TVVPN_REMOTES_FILE="${runtime_dir}/remotes.json" \
+        TVVPN_WIREGUARD_CLIENTS_FILE="${runtime_dir}/wireguard-clients.json" \
         TVVPN_LEASES_FILE="${runtime_dir}/dnsmasq.leases" \
         "${BUILD_DIR}/.venv/bin/uvicorn" \
             tv_vpn_panel.main:app \

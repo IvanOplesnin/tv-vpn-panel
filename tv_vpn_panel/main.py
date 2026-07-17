@@ -29,6 +29,8 @@ from .models import (
     RemoteUpdateRequest,
     SetVpnRequest,
     ToggleResponse,
+    WireGuardClientUpdate,
+    WireGuardPeerState,
     WireGuardStatusResponse,
     WsInbound,
     WsOutbound,
@@ -63,6 +65,7 @@ from .system_ops import (
     refresh_backend_route,
     route_table_text,
 )
+from .wireguard_registry import upsert_wireguard_profile
 from .wireguard_status import get_wireguard_status
 from .ws import manager
 
@@ -206,6 +209,74 @@ async def api_wireguard_clients(
     _: None = Depends(require_http_token),
 ) -> WireGuardStatusResponse:
     return await asyncio.to_thread(get_wireguard_status)
+
+
+@app.patch(
+    "/api/wireguard/clients/{client_ip}",
+    response_model=WireGuardPeerState,
+)
+async def api_update_wireguard_client(
+    client_ip: str,
+    payload: WireGuardClientUpdate,
+    _: None = Depends(require_http_token),
+) -> WireGuardPeerState:
+    async with state_lock:
+        status = await asyncio.to_thread(get_wireguard_status)
+
+        if not status.ok:
+            raise HTTPException(
+                status_code=503,
+                detail=status.error or "WireGuard status unavailable",
+            )
+
+        peer = next(
+            (
+                item
+                for item in status.peers
+                if item.ip == client_ip
+            ),
+            None,
+        )
+
+        if peer is None or peer.ip is None:
+            raise HTTPException(
+                status_code=404,
+                detail="WireGuard client not found",
+            )
+
+        try:
+            await asyncio.to_thread(
+                upsert_wireguard_profile,
+                public_key=peer.public_key,
+                ip=peer.ip,
+                name=payload.name,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=str(exc),
+            ) from exc
+
+        refreshed = await asyncio.to_thread(
+            get_wireguard_status
+        )
+
+    updated_peer = next(
+        (
+            item
+            for item in refreshed.peers
+            if item.ip == client_ip
+        ),
+        None,
+    )
+
+    if updated_peer is None:
+        raise HTTPException(
+            status_code=404,
+            detail="WireGuard client disappeared",
+        )
+
+    return updated_peer
 
 
 @app.get("/api/device-types", response_model=list[DeviceTypeInfo])
