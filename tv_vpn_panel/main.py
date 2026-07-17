@@ -274,6 +274,18 @@ async def api_update_wireguard_client(
         previous_mode = peer.routing_mode
         routing_was_applied = False
 
+        async def rollback_routing() -> str | None:
+            try:
+                await asyncio.to_thread(
+                    apply_wireguard_routing_mode,
+                    peer.ip,
+                    previous_mode,
+                )
+            except WireGuardRoutingError as exc:
+                return str(exc)
+
+            return None
+
         if payload.routing_mode is not None:
             try:
                 await asyncio.to_thread(
@@ -283,9 +295,24 @@ async def api_update_wireguard_client(
                 )
                 routing_was_applied = True
             except WireGuardRoutingError as exc:
+                rollback_error = None
+
+                if payload.routing_mode != previous_mode:
+                    rollback_error = (
+                        await rollback_routing()
+                    )
+
+                detail = str(exc)
+
+                if rollback_error:
+                    detail = (
+                        f"{detail}; rollback failed: "
+                        f"{rollback_error}"
+                    )
+
                 raise HTTPException(
                     status_code=409,
-                    detail=str(exc),
+                    detail=detail,
                 ) from exc
 
         try:
@@ -297,26 +324,39 @@ async def api_update_wireguard_client(
                 routing_mode=payload.routing_mode,
             )
         except ValueError as exc:
+            rollback_error = None
+
             if routing_was_applied:
-                with suppress(WireGuardRoutingError):
-                    await asyncio.to_thread(
-                        apply_wireguard_routing_mode,
-                        peer.ip,
-                        previous_mode,
-                    )
+                rollback_error = (
+                    await rollback_routing()
+                )
+
+            detail = str(exc)
+
+            if rollback_error:
+                detail = (
+                    f"{detail}; rollback failed: "
+                    f"{rollback_error}"
+                )
 
             raise HTTPException(
                 status_code=400,
-                detail=str(exc),
+                detail=detail,
             ) from exc
-        except Exception:
+        except Exception as exc:
+            rollback_error = None
+
             if routing_was_applied:
-                with suppress(WireGuardRoutingError):
-                    await asyncio.to_thread(
-                        apply_wireguard_routing_mode,
-                        peer.ip,
-                        previous_mode,
-                    )
+                rollback_error = (
+                    await rollback_routing()
+                )
+
+            if rollback_error:
+                raise RuntimeError(
+                    "WireGuard profile persistence "
+                    "failed and routing rollback "
+                    f"failed: {rollback_error}"
+                ) from exc
 
             raise
 
