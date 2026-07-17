@@ -90,6 +90,7 @@ require_commands() {
         git \
         ip \
         python3 \
+        ss \
         systemctl
     do
         command -v "$command_name" >/dev/null 2>&1 ||
@@ -159,6 +160,8 @@ restore_previous_release() {
 
     if [[ "$SWITCH_COMPLETED" -eq 1 ]]; then
         log "Restoring the previous production release"
+
+        rm -f "${APP_PATH}.new"
 
         if [[ "$OLD_PATH_WAS_SYMLINK" -eq 1 ]]; then
             rm -f "${APP_PATH}.rollback"
@@ -486,8 +489,16 @@ switch_release() {
 
         log "Moving legacy installation to $LEGACY_TARGET"
 
+        # Prepare the new symlink before moving the working installation.
+        # If the final atomic rename fails, SWITCH_COMPLETED is already set
+        # and the error trap restores LEGACY_TARGET back to APP_PATH.
+        rm -f "${APP_PATH}.new"
+        ln -s "$FINAL_RELEASE" "${APP_PATH}.new"
+
         mv "$APP_PATH" "$LEGACY_TARGET"
-        ln -s "$FINAL_RELEASE" "$APP_PATH"
+        SWITCH_COMPLETED=1
+
+        mv -Tf "${APP_PATH}.new" "$APP_PATH"
     else
         die "Production application path not found: $APP_PATH"
     fi
