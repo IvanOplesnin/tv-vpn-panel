@@ -420,18 +420,21 @@ prepare_release() {
 
     log "Running unit tests in dry-run mode"
 
-    env \
-        PYTHONPATH="$BUILD_DIR" \
-        TVVPN_DRY_RUN=true \
-        TVVPN_ENABLE_PERIODIC_SYNC=false \
-        TVVPN_DEVICES_FILE="${runtime_dir}/devices.json" \
-        TVVPN_REMOTES_FILE="${runtime_dir}/remotes.json" \
-        TVVPN_WIREGUARD_CLIENTS_FILE="${runtime_dir}/wireguard-clients.json" \
-        TVVPN_LEASES_FILE="${runtime_dir}/dnsmasq.leases" \
-        "${BUILD_DIR}/.venv/bin/python" \
-        -m pytest \
-        -q \
-        "${BUILD_DIR}/tests"
+    (
+        cd "$BUILD_DIR"
+        env \
+            PYTHONPATH="$BUILD_DIR" \
+            TVVPN_DRY_RUN=true \
+            TVVPN_ENABLE_PERIODIC_SYNC=false \
+            TVVPN_DEVICES_FILE="${runtime_dir}/devices.json" \
+            TVVPN_REMOTES_FILE="${runtime_dir}/remotes.json" \
+            TVVPN_WIREGUARD_CLIENTS_FILE="${runtime_dir}/wireguard-clients.json" \
+            TVVPN_LEASES_FILE="${runtime_dir}/dnsmasq.leases" \
+            "${BUILD_DIR}/.venv/bin/python" \
+            -m pytest \
+            -q \
+            tests
+    )
 
     if ss -ltn |
         grep -Eq ":${TEST_PORT}[[:space:]]"
@@ -444,22 +447,24 @@ prepare_release() {
 
     log "Starting isolated smoke-test server on ${TEST_HOST}:${TEST_PORT}"
 
-    env \
-        PYTHONPATH="$BUILD_DIR" \
-        TVVPN_DRY_RUN=true \
-        TVVPN_ENABLE_PERIODIC_SYNC=false \
-        TVVPN_API_TOKEN="" \
-        TVVPN_HOST="$TEST_HOST" \
-        TVVPN_PORT="$TEST_PORT" \
-        TVVPN_DEVICES_FILE="${runtime_dir}/devices.json" \
-        TVVPN_REMOTES_FILE="${runtime_dir}/remotes.json" \
-        TVVPN_WIREGUARD_CLIENTS_FILE="${runtime_dir}/wireguard-clients.json" \
-        TVVPN_LEASES_FILE="${runtime_dir}/dnsmasq.leases" \
-        "${BUILD_DIR}/.venv/bin/uvicorn" \
-            tv_vpn_panel.main:app \
-            --host "$TEST_HOST" \
-            --port "$TEST_PORT" \
-        >"$smoke_log" 2>&1 &
+    (
+        cd "$BUILD_DIR"
+        exec env \
+            PYTHONPATH="$BUILD_DIR" \
+            TVVPN_DRY_RUN=true \
+            TVVPN_ENABLE_PERIODIC_SYNC=false \
+            TVVPN_API_TOKEN="" \
+            TVVPN_HOST="$TEST_HOST" \
+            TVVPN_PORT="$TEST_PORT" \
+            TVVPN_DEVICES_FILE="${runtime_dir}/devices.json" \
+            TVVPN_REMOTES_FILE="${runtime_dir}/remotes.json" \
+            TVVPN_WIREGUARD_CLIENTS_FILE="${runtime_dir}/wireguard-clients.json" \
+            TVVPN_LEASES_FILE="${runtime_dir}/dnsmasq.leases" \
+            "${BUILD_DIR}/.venv/bin/uvicorn" \
+                tv_vpn_panel.main:app \
+                --host "$TEST_HOST" \
+                --port "$TEST_PORT"
+    ) >"$smoke_log" 2>&1 &
 
     SMOKE_PID=$!
 
