@@ -23,12 +23,15 @@ def test_device_api_smoke(tmp_path, monkeypatch):
             devices_file=cfg.devices_file,
             remotes_file=cfg.remotes_file,
             leases_file=cfg.leases_file,
+            wireguard_config_file=tmp_path / "wg-test0.conf",
+            wireguard_interface="wg-test0",
             backend_switch_script=tmp_path / "vpn-backend-switch.sh",
             table_id="200",
             ap_interface="wlan0",
             route_test_ip="8.8.8.8",
             dry_run=True,
             allow_backend_refresh=False,
+            api_token="",
         ),
     )
     monkeypatch.setattr(store, "disable_vpn_rule", lambda ip: None)
@@ -70,6 +73,10 @@ def test_device_api_smoke(tmp_path, monkeypatch):
     )
 
     client = TestClient(main.app)
+
+    wireguard_page = client.get("/wireguard")
+    assert wireguard_page.status_code == 200
+    assert "wg-test0" in wireguard_page.text
 
     device_types = client.get("/api/device-types")
     assert device_types.status_code == 200

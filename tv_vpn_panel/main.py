@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import getpass
 import json
+import logging
 import os
 import shutil
 from contextlib import suppress
@@ -71,6 +72,7 @@ from .wireguard_registry import upsert_wireguard_profile
 from .wireguard_routing import (
     WireGuardRoutingError,
     apply_wireguard_routing_mode,
+    replay_wireguard_routing_modes,
 )
 from .wireguard_status import get_wireguard_status
 from .ws import manager
@@ -81,6 +83,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app = FastAPI(title="TV VPN Panel", version="0.1.0")
 state_lock = asyncio.Lock()
 periodic_task: asyncio.Task | None = None
+logger = logging.getLogger(__name__)
 
 
 def json_list_file_ok(path: Path) -> bool:
@@ -133,6 +136,18 @@ async def startup() -> None:
     async with state_lock:
         await asyncio.to_thread(migrate_runtime_files)
         await asyncio.to_thread(apply_all_rules)
+        wireguard_replay = await asyncio.to_thread(replay_wireguard_routing_modes)
+    if wireguard_replay.attempted:
+        logger.info(
+            "Replayed WireGuard routing modes: applied=%s attempted=%s",
+            wireguard_replay.applied,
+            wireguard_replay.attempted,
+        )
+    if wireguard_replay.errors:
+        logger.warning(
+            "WireGuard routing replay had errors: %s",
+            "; ".join(wireguard_replay.errors),
+        )
     if settings.enable_periodic_sync:
         periodic_task = asyncio.create_task(periodic_sync_loop())
 
@@ -173,6 +188,12 @@ async def wireguard_page(
         {
             "api_token_enabled": bool(
                 settings.api_token
+            ),
+            "wireguard_config_file": str(
+                settings.wireguard_config_file
+            ),
+            "wireguard_interface": (
+                settings.wireguard_interface
             ),
         },
     )

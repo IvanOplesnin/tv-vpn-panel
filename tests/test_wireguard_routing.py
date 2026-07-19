@@ -24,6 +24,7 @@ def configure(
             wireguard_routing_priority_base=31000,
             wireguard_openvpn_table="201",
             wireguard_vless_table="202",
+            wireguard_interface="wg-test0",
             wireguard_direct_interface="eth0",
             wireguard_openvpn_interface="tun0",
             wireguard_vless_interface="sbtun0",
@@ -152,3 +153,115 @@ def test_apply_skips_host_in_dry_run(
     )
 
     assert "dry run" in result
+
+
+def test_probe_uses_configured_wireguard_interface(
+    monkeypatch,
+):
+    routing = configure(monkeypatch)
+    calls: list[list[str]] = []
+
+    def fake_safe_run(cmd, timeout=3.0):
+        from subprocess import CompletedProcess
+
+        calls.append(cmd)
+        return CompletedProcess(
+            cmd,
+            0,
+            "8.8.8.8 from 10.10.0.6 dev eth0\n",
+            "",
+        )
+
+    monkeypatch.setattr(
+        routing,
+        "safe_run",
+        fake_safe_run,
+    )
+
+    route_ok, route_text = (
+        routing.probe_wireguard_route(
+            "10.10.0.6",
+        )
+    )
+
+    assert route_ok is True
+    assert "dev eth0" in (route_text or "")
+    assert calls == [
+        [
+            "ip",
+            "route",
+            "get",
+            "8.8.8.8",
+            "from",
+            "10.10.0.6",
+            "iif",
+            "wg-test0",
+        ]
+    ]
+
+
+def test_replay_wireguard_routing_modes(
+    monkeypatch,
+):
+    routing = configure(monkeypatch)
+    calls: list[tuple[str, str]] = []
+
+    from tv_vpn_panel.models import (
+        WireGuardClientProfile,
+    )
+
+    profiles = [
+        WireGuardClientProfile(
+            public_key="auto-key",
+            ip="10.10.0.5",
+            routing_mode="auto",
+        ),
+        WireGuardClientProfile(
+            public_key="openvpn-key",
+            ip="10.10.0.6",
+            routing_mode="openvpn",
+        ),
+        WireGuardClientProfile(
+            public_key="vless-key",
+            ip="10.10.0.7",
+            routing_mode="vless",
+        ),
+    ]
+
+    def fake_apply(
+        client_ip: str,
+        routing_mode: str,
+    ) -> str:
+        calls.append((client_ip, routing_mode))
+
+        if routing_mode == "vless":
+            raise routing.WireGuardRoutingError(
+                "backend unavailable"
+            )
+
+        return "applied"
+
+    monkeypatch.setattr(
+        routing,
+        "load_wireguard_profiles",
+        lambda: profiles,
+    )
+    monkeypatch.setattr(
+        routing,
+        "apply_wireguard_routing_mode",
+        fake_apply,
+    )
+
+    result = (
+        routing.replay_wireguard_routing_modes()
+    )
+
+    assert calls == [
+        ("10.10.0.6", "openvpn"),
+        ("10.10.0.7", "vless"),
+    ]
+    assert result.attempted == 2
+    assert result.applied == 1
+    assert result.errors == [
+        "10.10.0.7: backend unavailable"
+    ]

@@ -42,7 +42,7 @@ TV VPN Panel — управляющий сервис на FastAPI для policy 
 | <code>tv_vpn_panel/models.py</code> | Pydantic-модели запросов и ответов |
 | <code>tv_vpn_panel/store.py</code> | JSON-хранилище, миграция данных и синхронизация DHCP leases |
 | <code>tv_vpn_panel/system_ops.py</code> | Правила обычных устройств, probing и состояние backend |
-| <code>tv_vpn_panel/wireguard_status.py</code> | Чтение <code>wg show wg0 dump</code>, handshake, трафик и route probe |
+| <code>tv_vpn_panel/wireguard_status.py</code> | Чтение <code>wg show TVVPN_WG_DEV dump</code>, handshake, трафик и route probe |
 | <code>tv_vpn_panel/wireguard_registry.py</code> | Имена и желаемые режимы WireGuard-клиентов |
 | <code>tv_vpn_panel/wireguard_routing.py</code> | Применение и проверка режима WireGuard-клиента |
 | <code>scripts/wireguard-client-routing.sh</code> | Таблицы 201/202, индивидуальные rules, forwarding, NAT и kill switch |
@@ -109,7 +109,7 @@ from 10.10.0.0/24 lookup 200
 
 Routing-скрипт подготавливает таблицы 201/202 и правила forwarding/NAT при каждом изменении режима. API сначала применяет маршрут, затем сохраняет профиль. Если сохранение или проверка не удались, выполняется попытка вернуть предыдущий режим.
 
-Сохранённый <code>routing_mode</code> является желаемым состоянием. При старте приложения автоматически повторно применяются правила обычных устройств, но индивидуальные WireGuard-режимы пока не replay-ятся. После перезагрузки сверяйте поле <code>routing_mode_applied</code> и при необходимости применяйте режим повторно.
+Сохранённый <code>routing_mode</code> является желаемым состоянием. При старте приложения автоматически повторно применяются правила обычных устройств и индивидуальные WireGuard-режимы, кроме <code>auto</code>. Если backend ещё недоступен или проверка маршрута не прошла, ошибка пишется в журнал сервиса, а фактическое состояние видно по <code>routing_mode_applied</code>.
 
 ## Production deployment через systemd
 
@@ -235,6 +235,7 @@ TVVPN_TABLE_ID=200
 TVVPN_AP_INTERFACE=enx00e04c2a7a88
 TVVPN_ROUTE_TEST_IP=8.8.8.8
 
+TVVPN_WG_DEV=wg0
 TVVPN_OPENVPN_TABLE=201
 TVVPN_VLESS_TABLE=202
 TVVPN_WG_PRIORITY_BASE=31000
@@ -268,7 +269,7 @@ TVVPN_BACKEND_CHECK_IP=1.1.1.1
 
 <code>TVVPN_AP_INTERFACE</code> используется Python-приложением для route probe обычных устройств, а <code>TVVPN_AP_DEV</code> — shell-скриптом WireGuard. Для одной AP-сети их значения должны указывать на один интерфейс.
 
-API мониторинга WireGuard в текущей версии ожидает интерфейс <code>wg0</code>, поэтому не меняйте <code>TVVPN_WG_DEV</code> без соответствующего изменения приложения.
+Python API мониторинга WireGuard и routing script используют <code>TVVPN_WG_DEV</code>. Default — <code>wg0</code>.
 
 После изменения конфигурации:
 
@@ -954,6 +955,7 @@ Hello:
 | <code>TVVPN_TABLE_ID</code> | <code>200</code> | Общая VPN table |
 | <code>TVVPN_AP_INTERFACE</code> | <code>enx00e04c2a7a88</code> | Входной интерфейс route probe устройств |
 | <code>TVVPN_ROUTE_TEST_IP</code> | <code>8.8.8.8</code> | Цель route probe |
+| <code>TVVPN_WG_DEV</code> | <code>wg0</code> | WireGuard-интерфейс для API и routing script |
 | <code>TVVPN_BACKEND_SWITCH_SCRIPT</code> | <code>/usr/local/sbin/vpn-backend-switch.sh</code> | Внешний backend switch script |
 | <code>TVVPN_WIREGUARD_ROUTING_SCRIPT</code> | Скрипт из текущего checkout | Применение режима WireGuard |
 | <code>TVVPN_WG_PRIORITY_BASE</code> | <code>31000</code> | База индивидуальных WG priorities |

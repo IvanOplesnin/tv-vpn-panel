@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import ipaddress
 import os
+from dataclasses import dataclass, field
 
 from .config import settings
 from .models import WireGuardRoutingMode
 from .system_ops import safe_run
+from .wireguard_registry import load_wireguard_profiles
 
 
-WG_INTERFACE = "wg0"
 VALID_MODES = {
     "auto",
     "direct",
@@ -19,6 +20,13 @@ VALID_MODES = {
 
 class WireGuardRoutingError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class WireGuardRoutingReplayResult:
+    attempted: int = 0
+    applied: int = 0
+    errors: list[str] = field(default_factory=list)
 
 
 def _client_priority(client_ip: str) -> int:
@@ -109,7 +117,7 @@ def probe_wireguard_route(
             "from",
             client_ip,
             "iif",
-            WG_INTERFACE,
+            settings.wireguard_interface,
         ],
         timeout=3.0,
     )
@@ -288,4 +296,33 @@ def apply_wireguard_routing_mode(
     return output or (
         f"{client_ip}: routing mode "
         f"{routing_mode} applied"
+    )
+
+
+def replay_wireguard_routing_modes() -> WireGuardRoutingReplayResult:
+    attempted = 0
+    applied = 0
+    errors: list[str] = []
+
+    for profile in load_wireguard_profiles():
+        if profile.routing_mode == "auto":
+            continue
+
+        attempted += 1
+
+        try:
+            apply_wireguard_routing_mode(
+                profile.ip,
+                profile.routing_mode,
+            )
+        except WireGuardRoutingError as exc:
+            errors.append(f"{profile.ip}: {exc}")
+            continue
+
+        applied += 1
+
+    return WireGuardRoutingReplayResult(
+        attempted=attempted,
+        applied=applied,
+        errors=errors,
     )

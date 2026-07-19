@@ -160,9 +160,9 @@
 
   <div class="hint">
     Имена загружаются из комментариев файла
-    <code>/etc/wireguard/wg0.conf</code>.
+    <code>{{ wireguard_config_file }}</code>.
     Переключение меняет маршрут интернет-трафика выбранного клиента,
-    но не перезапускает <code>wg0</code>.
+    но не перезапускает <code>{{ wireguard_interface }}</code>.
   </div>
 
   <div class="toolbar">
@@ -174,7 +174,7 @@
         Обновить
       </button>
       <button class="primary" onclick="syncNames()">
-        Считать имена из wg0.conf
+        Считать имена
       </button>
     </div>
     <div id="syncResult" class="small"></div>

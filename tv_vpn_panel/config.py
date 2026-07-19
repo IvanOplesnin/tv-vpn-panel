@@ -37,6 +37,10 @@ class Settings:
             "/etc/wireguard/wg0.conf",
         )
     )
+    wireguard_interface: str = os.getenv(
+        "TVVPN_WG_DEV",
+        "wg0",
+    )
     backend_switch_script: Path = Path(
         os.getenv("TVVPN_BACKEND_SWITCH_SCRIPT", "/usr/local/sbin/vpn-backend-switch.sh")
     )

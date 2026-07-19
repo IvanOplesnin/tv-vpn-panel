@@ -31,11 +31,14 @@ def test_wireguard_status_parses_peers(monkeypatch):
         "10.10.0.6/32\t0\t3000\t4000\t0\n"
     )
 
+    route_probe_commands: list[list[str]] = []
+
     def fake_safe_run(cmd: list[str], timeout: float = 5.0):
-        if cmd[:4] == ["wg", "show", "wg0", "dump"]:
+        if cmd[:4] == ["wg", "show", "wg-test0", "dump"]:
             return completed(cmd, stdout=dump)
 
         if cmd[:3] == ["ip", "route", "get"]:
+            route_probe_commands.append(cmd)
             client_ip = cmd[cmd.index("from") + 1]
 
             return completed(
@@ -53,7 +56,10 @@ def test_wireguard_status_parses_peers(monkeypatch):
     monkeypatch.setattr(
         wireguard_status,
         "settings",
-        SimpleNamespace(route_test_ip="8.8.8.8"),
+        SimpleNamespace(
+            route_test_ip="8.8.8.8",
+            wireguard_interface="wg-test0",
+        ),
     )
     monkeypatch.setattr(
         wireguard_status,
@@ -72,7 +78,12 @@ def test_wireguard_status_parses_peers(monkeypatch):
     response = wireguard_status.get_wireguard_status()
 
     assert response.ok is True
+    assert response.interface == "wg-test0"
     assert len(response.peers) == 2
+    assert all(
+        command[-1] == "wg-test0"
+        for command in route_probe_commands
+    )
 
     first = response.peers[0]
 
@@ -98,6 +109,13 @@ def test_wireguard_status_handles_command_error(monkeypatch):
 
     monkeypatch.setattr(
         wireguard_status,
+        "settings",
+        SimpleNamespace(
+            wireguard_interface="wg-error0",
+        ),
+    )
+    monkeypatch.setattr(
+        wireguard_status,
         "safe_run",
         lambda cmd, timeout=5.0: completed(
             cmd,
@@ -109,5 +127,6 @@ def test_wireguard_status_handles_command_error(monkeypatch):
     response = wireguard_status.get_wireguard_status()
 
     assert response.ok is False
+    assert response.interface == "wg-error0"
     assert response.peers == []
     assert response.error == "Operation not permitted"

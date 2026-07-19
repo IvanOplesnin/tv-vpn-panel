@@ -14,7 +14,6 @@ from .wireguard_routing import (
 )
 
 
-WG_INTERFACE = "wg0"
 ONLINE_THRESHOLD_SECONDS = 180
 
 
@@ -70,7 +69,7 @@ def _probe_route(ip: str | None) -> tuple[bool, str | None]:
             "from",
             ip,
             "iif",
-            WG_INTERFACE,
+            settings.wireguard_interface,
         ],
         timeout=3.0,
     )
@@ -96,14 +95,19 @@ def get_wireguard_status() -> WireGuardStatusResponse:
     generated_at = _utc_now()
 
     result = safe_run(
-        ["wg", "show", WG_INTERFACE, "dump"],
+        [
+            "wg",
+            "show",
+            settings.wireguard_interface,
+            "dump",
+        ],
         timeout=5.0,
     )
 
     if result is None:
         return WireGuardStatusResponse(
             ok=False,
-            interface=WG_INTERFACE,
+            interface=settings.wireguard_interface,
             generated_at=generated_at,
             online_threshold_seconds=ONLINE_THRESHOLD_SECONDS,
             error="failed to execute wg command",
@@ -114,7 +118,7 @@ def get_wireguard_status() -> WireGuardStatusResponse:
 
         return WireGuardStatusResponse(
             ok=False,
-            interface=WG_INTERFACE,
+            interface=settings.wireguard_interface,
             generated_at=generated_at,
             online_threshold_seconds=ONLINE_THRESHOLD_SECONDS,
             error=error or "wg command returned an error",
@@ -125,7 +129,7 @@ def get_wireguard_status() -> WireGuardStatusResponse:
     if not lines:
         return WireGuardStatusResponse(
             ok=False,
-            interface=WG_INTERFACE,
+            interface=settings.wireguard_interface,
             generated_at=generated_at,
             online_threshold_seconds=ONLINE_THRESHOLD_SECONDS,
             error="wg dump returned no data",
@@ -145,7 +149,7 @@ def get_wireguard_status() -> WireGuardStatusResponse:
     }
     rule_text = get_wireguard_rule_text()
 
-    # Первая строка описывает интерфейс wg0.
+    # Первая строка описывает сам WireGuard-интерфейс.
     for line in lines[1:]:
         columns = line.split("\t")
 
@@ -252,7 +256,7 @@ def get_wireguard_status() -> WireGuardStatusResponse:
 
     return WireGuardStatusResponse(
         ok=True,
-        interface=WG_INTERFACE,
+        interface=settings.wireguard_interface,
         generated_at=generated_at,
         online_threshold_seconds=ONLINE_THRESHOLD_SECONDS,
         peers=peers,
