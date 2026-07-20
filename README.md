@@ -472,6 +472,7 @@ Query-параметр <code>?token=change-me</code> также поддержи
 |---|---|---|
 | GET | <code>/api/health</code> | Быстрая проверка приложения и runtime-файлов |
 | GET | <code>/api/diagnostics</code> | Rules, routes, интерфейсы и конфигурационные пути |
+| GET | <code>/api/viewer</code> | IP клиента, открывшего панель; UI использует его для подсветки текущей строки |
 | POST | <code>/api/backend/refresh</code> | Запустить внешний backend switch script, если разрешено |
 | GET | <code>/api/device-types</code> | Допустимые типы устройств |
 | GET | <code>/api/devices</code> | Синхронизировать leases и вернуть устройства |

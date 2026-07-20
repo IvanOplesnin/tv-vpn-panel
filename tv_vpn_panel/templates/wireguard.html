@@ -96,6 +96,15 @@
       background: #333;
       font-weight: 700;
     }
+    .pill.viewer {
+      background: #1f4f63;
+      color: #9fe8ff;
+    }
+    .viewer-row {
+      outline: 2px solid #1f4f63;
+      outline-offset: -2px;
+      background: #17242a;
+    }
     .online {
       background: #2ecc71;
       color: #041b0d;
@@ -215,6 +224,7 @@
 <script>
 const apiTokenEnabled = {{ "true" if api_token_enabled else "false" }};
 let clients = [];
+let viewerIp = '';
 
 function token() {
   return localStorage.getItem('tvvpn_api_token') || '';
@@ -296,6 +306,27 @@ function safeId(value) {
   return String(value).replace(
     /[^a-zA-Z0-9_-]/g,
     '_'
+  );
+}
+
+function normalizeIp(ip) {
+  return String(ip || '').trim();
+}
+
+function isViewerIp(ip) {
+  return Boolean(viewerIp && normalizeIp(ip) === viewerIp);
+}
+
+function isViewerClient(client) {
+  return isViewerIp(client.ip);
+}
+
+function sortClients() {
+  clients.sort(
+    (a, b) => (
+      Number(isViewerClient(b))
+      - Number(isViewerClient(a))
+    )
   );
 }
 
@@ -382,6 +413,10 @@ function renderClients() {
     const key = safeId(client.ip || client.public_key_short);
     const status = client.status || 'never';
     const name = client.name || `WireGuard ${client.ip || ''}`;
+    const isViewer = isViewerClient(client);
+    const viewerPill = isViewer
+      ? '<span class="pill viewer">Текущий клиент</span><br>'
+      : '';
     const appliedClass = client.routing_mode_applied
       ? 'applied'
       : 'not-applied';
@@ -390,10 +425,12 @@ function renderClients() {
       : 'не совпадает';
 
     const row = document.createElement('tr');
+    if (isViewer) row.className = 'viewer-row';
 
     row.innerHTML = `
       <td data-label="Клиент">
         <strong>${escapeHtml(name)}</strong><br>
+        ${viewerPill}
         <span>${escapeHtml(client.ip || 'без IP')}</span><br>
         <span class="small">${escapeHtml(client.public_key_short || '')}</span>
       </td>
@@ -443,6 +480,7 @@ function renderClients() {
 async function loadClients(showError=true) {
   try {
     document.getElementById('pageError').textContent = '';
+    await loadViewer();
 
     const response = await api(
       '/api/wireguard/clients'
@@ -455,12 +493,18 @@ async function loadClients(showError=true) {
     }
 
     clients = response.peers || [];
+    sortClients();
     renderClients();
   } catch (error) {
     if (showError) {
       document.getElementById('pageError').textContent = error.message;
     }
   }
+}
+
+async function loadViewer() {
+  const viewer = await api('/api/viewer');
+  viewerIp = normalizeIp(viewer.ip);
 }
 
 async function syncNames() {
@@ -542,6 +586,7 @@ async function applyMode(clientIp) {
       clients[index] = updated;
     }
 
+    sortClients();
     renderClients();
   } catch (error) {
     alert(error.message);

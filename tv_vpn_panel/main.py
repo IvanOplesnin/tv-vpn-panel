@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import getpass
+import ipaddress
 import json
 import logging
 import os
@@ -30,6 +31,7 @@ from .models import (
     RemoteUpdateRequest,
     SetVpnRequest,
     ToggleResponse,
+    ViewerResponse,
     WireGuardClientUpdate,
     WireGuardNameSyncResponse,
     WireGuardPeerState,
@@ -93,6 +95,23 @@ def json_list_file_ok(path: Path) -> bool:
         return isinstance(json.loads(path.read_text(encoding="utf-8")), list)
     except (json.JSONDecodeError, OSError):
         return False
+
+
+def request_client_ip(request: Request) -> str | None:
+    host = request.client.host if request.client else None
+
+    if not host:
+        return None
+
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+
+    if address.version == 6 and address.ipv4_mapped:
+        return str(address.ipv4_mapped)
+
+    return str(address)
 
 
 def build_device_state(device: Device) -> DeviceState:
@@ -218,6 +237,14 @@ async def health(_: None = Depends(require_http_token)) -> HealthResponse:
         service_user=getpass.getuser(),
         backend_switch_allowed=settings.allow_backend_refresh,
     )
+
+
+@app.get("/api/viewer", response_model=ViewerResponse)
+async def api_viewer(
+    request: Request,
+    _: None = Depends(require_http_token),
+) -> ViewerResponse:
+    return ViewerResponse(ip=request_client_ip(request))
 
 
 @app.get("/api/diagnostics", response_model=DiagnosticsResponse)

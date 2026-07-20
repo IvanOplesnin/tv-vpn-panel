@@ -72,11 +72,23 @@ def test_device_api_smoke(tmp_path, monkeypatch):
         ],
     )
 
-    client = TestClient(main.app)
+    client = TestClient(
+        main.app,
+        client=("10.10.0.6", 12345),
+    )
+
+    index_page = client.get("/")
+    assert index_page.status_code == 200
+    assert "Текущее устройство" in index_page.text
 
     wireguard_page = client.get("/wireguard")
     assert wireguard_page.status_code == 200
     assert "wg-test0" in wireguard_page.text
+    assert "Текущий клиент" in wireguard_page.text
+
+    viewer = client.get("/api/viewer")
+    assert viewer.status_code == 200
+    assert viewer.json() == {"ip": "10.10.0.6"}
 
     device_types = client.get("/api/device-types")
     assert device_types.status_code == 200

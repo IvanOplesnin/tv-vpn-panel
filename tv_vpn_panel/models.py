@@ -176,6 +176,10 @@ class DiagnosticsResponse(BaseModel):
     route_table: str
 
 
+class ViewerResponse(BaseModel):
+    ip: str | None = None
+
+
 WireGuardRoutingMode = Literal[
     "auto",
     "direct",
