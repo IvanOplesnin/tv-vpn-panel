@@ -17,6 +17,11 @@ OVPN_GW="${TVVPN_OVPN_GW:-10.8.0.1}"
 VLESS_NET="${TVVPN_VLESS_NET:-172.19.0.0/30}"
 VLESS_DEV="${TVVPN_VLESS_DEV:-sbtun0}"
 
+# Caddy publishes the internal services from this Docker network.  Docker
+# applies DNAT before policy routing, so every WireGuard backend table needs
+# an explicit route to the network instead of sending it to its VPN default.
+CADDY_DOCKER_NETWORK="${TVVPN_CADDY_DOCKER_NETWORK:-vaultwarden_vw}"
+
 OPENVPN_TABLE="${TVVPN_OPENVPN_TABLE:-201}"
 VLESS_TABLE="${TVVPN_VLESS_TABLE:-202}"
 
@@ -178,6 +183,55 @@ ensure_iptables_rule() {
 }
 
 
+add_caddy_docker_route() {
+    local table="$1"
+    local subnet
+    local bridge
+
+    if ! command -v docker >/dev/null 2>&1; then
+        log "WARNING: docker is unavailable; skipping Caddy Docker route"
+        return 0
+    fi
+
+    if ! subnet="$({
+        docker network inspect \
+            --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}' \
+            "$CADDY_DOCKER_NETWORK" 2>/dev/null
+    } | awk 'NF && $0 !~ /:/ { print; exit }')"; then
+        log "WARNING: Docker network ${CADDY_DOCKER_NETWORK} is unavailable"
+        return 0
+    fi
+
+    if [[ -z "$subnet" ]]; then
+        log "WARNING: no IPv4 subnet found for ${CADDY_DOCKER_NETWORK}"
+        return 0
+    fi
+
+    bridge="$({
+        ip -4 route show table main "$subnet" 2>/dev/null
+    } | awk '{
+        for (i = 1; i <= NF; i++) {
+            if ($i == "dev") {
+                print $(i + 1)
+                exit
+            }
+        }
+    }')"
+
+    if [[ -z "$bridge" ]]; then
+        log "WARNING: no local bridge found for ${subnet}"
+        return 0
+    fi
+
+    run_cmd ip -4 route replace \
+        "$subnet" \
+        dev "$bridge" \
+        table "$table"
+
+    log "Caddy route: ${subnet} dev ${bridge} table ${table}"
+}
+
+
 add_common_routes() {
     local table="$1"
 
@@ -195,6 +249,8 @@ add_common_routes() {
         "$AP_NET" \
         dev "$AP_DEV" \
         table "$table"
+
+    add_caddy_docker_route "$table"
 }
 
 
