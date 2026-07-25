@@ -1,10 +1,11 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="TV VPN Panel Dry Run" type="PythonConfigurationType" factoryName="Python">
-    <module name="tv-vpn-panel-fastapi" />
+    <module name="tv-vpn-panel" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
+      <env name="PYTHONUNBUFFERED" value="1" />
       <env name="TVVPN_DRY_RUN" value="true" />
       <env name="TVVPN_DEVICES_FILE" value="/tmp/tvvpn-devices.json" />
       <env name="TVVPN_REMOTES_FILE" value="/tmp/tvvpn-remotes.json" />
@@ -17,6 +18,9 @@
     <option name="IS_MODULE_SDK" value="true" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
+    <option name="DEBUG_JUST_MY_CODE" value="true" />
+    <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+    <option name="RUN_TOOL" value="" />
     <option name="SCRIPT_NAME" value="uvicorn" />
     <option name="PARAMETERS" value="tv_vpn_panel.main:app --reload --host 127.0.0.1 --port 8090" />
     <option name="SHOW_COMMAND_LINE" value="false" />

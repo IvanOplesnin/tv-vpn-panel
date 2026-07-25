@@ -20,4 +20,4 @@ packages = ["tv_vpn_panel"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-tv_vpn_panel = ["templates/*.html"]
+tv_vpn_panel = ["assets/*.png", "templates/*.html"]
