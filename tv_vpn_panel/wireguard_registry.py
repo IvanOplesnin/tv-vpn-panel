@@ -18,6 +18,7 @@ VALID_ROUTING_MODES = {
     "direct",
     "openvpn",
     "vless",
+    "backup",
 }
 
 

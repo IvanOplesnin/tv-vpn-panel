@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from typing import Literal
 
 
-BackendName = Literal["openvpn", "sing-box", "none", "unknown"]
+BackendName = Literal["openvpn", "sing-box", "amneziawg", "none", "unknown"]
 
 
 class DeviceType(str, Enum):
@@ -185,6 +185,7 @@ WireGuardRoutingMode = Literal[
     "direct",
     "openvpn",
     "vless",
+    "backup",
 ]
 
 

@@ -66,6 +66,10 @@ class Settings:
         "TVVPN_VLESS_TABLE",
         "202",
     )
+    wireguard_backup_table: str = os.getenv(
+        "TVVPN_AWG_TABLE",
+        "203",
+    )
     wireguard_direct_interface: str = os.getenv(
         "TVVPN_LAN_DEV",
         "eth0",
@@ -77,6 +81,10 @@ class Settings:
     wireguard_vless_interface: str = os.getenv(
         "TVVPN_VLESS_DEV",
         "sbtun0",
+    )
+    wireguard_backup_interface: str = os.getenv(
+        "TVVPN_AWG_DEV",
+        "awg-backup",
     )
 
     # Empty token means local/trusted LAN mode. Set a token before exposing outside the TV LAN.

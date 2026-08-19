@@ -672,11 +672,33 @@ async def api_delete_remote(remote_id: str, _: None = Depends(require_http_token
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
-    await require_ws_token(websocket)
     await manager.connect(websocket)
+
+    initial_inbound = None
+    if settings.api_token:
+        try:
+            payload = await asyncio.wait_for(
+                websocket.receive_json(),
+                timeout=5.0,
+            )
+            initial_inbound = WsInbound(**payload)
+            if initial_inbound.type != "hello":
+                raise RuntimeError("first WebSocket message must be hello")
+            await require_ws_token(websocket, initial_inbound.token)
+        except Exception:
+            await manager.disconnect(websocket)
+            with suppress(Exception):
+                await websocket.close(code=1008, reason="authentication required")
+            return
 
     target_mac = (websocket.query_params.get("target_mac") or "").lower() or None
     remote_id = websocket.query_params.get("remote_id")
+    if initial_inbound is not None:
+        remote_id = initial_inbound.remote_id or remote_id
+        target_mac = (
+            (initial_inbound.target_mac or target_mac or "").lower()
+            or None
+        )
     remote = None
 
     if remote_id:
@@ -727,8 +749,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
     try:
         while True:
-            payload = await websocket.receive_json()
-            inbound = WsInbound(**payload)
+            if initial_inbound is not None:
+                inbound = initial_inbound
+                initial_inbound = None
+            else:
+                payload = await websocket.receive_json()
+                inbound = WsInbound(**payload)
 
             if inbound.type == "hello":
                 await require_ws_token(websocket, inbound.token)

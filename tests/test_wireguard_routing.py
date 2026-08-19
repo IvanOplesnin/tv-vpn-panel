@@ -24,10 +24,12 @@ def configure(
             wireguard_routing_priority_base=31000,
             wireguard_openvpn_table="201",
             wireguard_vless_table="202",
+            wireguard_backup_table="203",
             wireguard_interface="wg-test0",
             wireguard_direct_interface="eth0",
             wireguard_openvpn_interface="tun0",
             wireguard_vless_interface="sbtun0",
+            wireguard_backup_interface="awg-backup",
         ),
     )
 
@@ -88,6 +90,20 @@ def test_pinned_backends_applied(
         (
             "31006: from 10.10.0.6 "
             "lookup 201\n"
+        ),
+    )
+
+    assert routing.routing_mode_is_applied(
+        "10.10.0.6",
+        "backup",
+        True,
+        (
+            "8.8.8.8 from 10.10.0.6 "
+            "dev awg-backup table 203"
+        ),
+        (
+            "31006: from 10.10.0.6 "
+            "lookup 203\n"
         ),
     )
 
@@ -226,6 +242,11 @@ def test_replay_wireguard_routing_modes(
             ip="10.10.0.7",
             routing_mode="vless",
         ),
+        WireGuardClientProfile(
+            public_key="backup-key",
+            ip="10.10.0.8",
+            routing_mode="backup",
+        ),
     ]
 
     def fake_apply(
@@ -259,9 +280,10 @@ def test_replay_wireguard_routing_modes(
     assert calls == [
         ("10.10.0.6", "openvpn"),
         ("10.10.0.7", "vless"),
+        ("10.10.0.8", "backup"),
     ]
-    assert result.attempted == 2
-    assert result.applied == 1
+    assert result.attempted == 3
+    assert result.applied == 2
     assert result.errors == [
         "10.10.0.7: backend unavailable"
     ]

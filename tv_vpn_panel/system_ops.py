@@ -7,7 +7,12 @@ from .config import settings
 from .models import BackendState, DeviceRuntimeState, VpnInterfaceState
 
 
-VPN_INTERFACE_NAMES = ("tun0", "sbtun0")
+def vpn_interface_names() -> tuple[str, str, str]:
+    return (
+        getattr(settings, "wireguard_openvpn_interface", "tun0"),
+        getattr(settings, "wireguard_vless_interface", "sbtun0"),
+        getattr(settings, "wireguard_backup_interface", "awg-backup"),
+    )
 
 
 def run_cmd(cmd: list[str], check: bool = False, timeout: float = 5.0) -> subprocess.CompletedProcess[str]:
@@ -150,7 +155,7 @@ def get_vpn_interface_state(interface: str, route_table: str | None = None) -> V
 
 def get_vpn_interface_states(route_table: str | None = None) -> list[VpnInterfaceState]:
     routes = route_table_text() if route_table is None else route_table
-    return [get_vpn_interface_state(interface, routes) for interface in VPN_INTERFACE_NAMES]
+    return [get_vpn_interface_state(interface, routes) for interface in vpn_interface_names()]
 
 
 def get_backend_state() -> BackendState:
@@ -170,16 +175,22 @@ def get_backend_state() -> BackendState:
             default_route=None,
         )
 
-    if " dev tun0" in default_route or " via 10.8.0.1" in default_route:
+    openvpn_interface = getattr(settings, "wireguard_openvpn_interface", "tun0")
+    vless_interface = getattr(settings, "wireguard_vless_interface", "sbtun0")
+    backup_interface = getattr(settings, "wireguard_backup_interface", "awg-backup")
+
+    if f" dev {openvpn_interface}" in default_route or " via 10.8.0.1" in default_route:
         active = "openvpn"
-    elif " dev sbtun0" in default_route:
+    elif f" dev {vless_interface}" in default_route:
         active = "sing-box"
+    elif f" dev {backup_interface}" in default_route:
+        active = "amneziawg"
     else:
         active = "unknown"
 
     return BackendState(
         active=active,
-        ok=active in {"openvpn", "sing-box"},
+        ok=active in {"openvpn", "sing-box", "amneziawg"},
         table_id=settings.table_id,
         table_has_default=True,
         default_route=default_route,
