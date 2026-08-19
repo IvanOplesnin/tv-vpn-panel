@@ -15,7 +15,7 @@ TV VPN Panel — управляющий сервис на FastAPI для policy 
 - диагностика <code>tun0</code>, <code>sbtun0</code>, правил и маршрутов;
 - просмотр WireGuard-клиентов, handshake и переданного трафика;
 - именование WireGuard-клиентов и синхронизация имён из <code>wg0.conf</code>;
-- режимы WireGuard-маршрутизации: <code>auto</code>, <code>direct</code>, <code>openvpn</code> и <code>vless</code>;
+- режимы WireGuard-маршрутизации: <code>auto</code>, <code>direct</code>, <code>openvpn</code>, <code>vless</code> и <code>backup</code> (AmneziaWG/table 203);
 - безопасное обновление с тестами, smoke-check и автоматическим rollback.
 
 ## Архитектура
@@ -45,7 +45,7 @@ TV VPN Panel — управляющий сервис на FastAPI для policy 
 | <code>tv_vpn_panel/wireguard_status.py</code> | Чтение <code>wg show TVVPN_WG_DEV dump</code>, handshake, трафик и route probe |
 | <code>tv_vpn_panel/wireguard_registry.py</code> | Имена и желаемые режимы WireGuard-клиентов |
 | <code>tv_vpn_panel/wireguard_routing.py</code> | Применение и проверка режима WireGuard-клиента |
-| <code>scripts/wireguard-client-routing.sh</code> | Таблицы 201/202, индивидуальные rules, forwarding, NAT и kill switch |
+| <code>scripts/wireguard-client-routing.sh</code> | Таблицы 201/202/203, индивидуальные rules и kill switch; AWG NAT/forwarding принадлежат отдельному nft/systemd baseline |
 | <code>tv_vpn_panel/ws.py</code> | Активные WebSocket-подключения и broadcast |
 
 Приложение не поднимает VPN-туннели и не заменяет dnsmasq, OpenVPN, sing-box или WireGuard. Оно является control plane поверх уже настроенной сети хоста.
@@ -462,7 +462,7 @@ X-API-Token: change-me
 Authorization: Bearer change-me
 ~~~
 
-Query-параметр <code>?token=change-me</code> также поддерживается, но для интеграций предпочтительнее заголовок: query string может попасть в access log и историю.
+Token принимается только из HTTP-заголовка <code>X-API-Token</code>/<code>Authorization: Bearer</code>. WebSocket передаёт token в первом сообщении <code>hello</code>; token не помещается в URL и access log.
 
 Страницы <code>/</code> и <code>/wireguard</code> отдаются без API dependency. При включённом token встроенный интерфейс сохраняет его в <code>localStorage</code> браузера и добавляет к API/WebSocket-запросам.
 

@@ -85,10 +85,12 @@ require_commands() {
     local command_name
 
     for command_name in \
+        cmp \
         curl \
         flock \
         git \
         ip \
+        nft \
         python3 \
         ss \
         systemctl
@@ -519,8 +521,12 @@ prepare_release() {
 }
 
 backup_production_state() {
+    local state_file
+    local table
+
     BACKUP_DIR="${BACKUPS_DIR}/${STAMP}"
     mkdir -p "$BACKUP_DIR"
+    chmod 0700 "$BACKUP_DIR"
 
     systemctl cat "$SERVICE_NAME" \
         >"${BACKUP_DIR}/service.txt"
@@ -538,8 +544,43 @@ backup_production_state() {
     ip -4 rule show \
         >"${BACKUP_DIR}/ip-rule-before.txt"
 
-    ip -4 route show table "$EXPECTED_WG_TABLE" \
-        >"${BACKUP_DIR}/table-${EXPECTED_WG_TABLE}-before.txt"
+    for table in 200 201 202 203; do
+        ip -4 route show table "$table" \
+            >"${BACKUP_DIR}/table-${table}-before.txt" \
+            2>"${BACKUP_DIR}/table-${table}-before.error" || true
+    done
+
+    ip -6 rule show \
+        >"${BACKUP_DIR}/ip6-rule-before.txt"
+
+    if nft list table inet vpn_policy >/dev/null 2>&1; then
+        nft list table inet vpn_policy \
+            >"${BACKUP_DIR}/nft-vpn-policy-before.txt"
+        nft list set inet vpn_policy ru4_dst \
+            >"${BACKUP_DIR}/ru4-set-before.txt"
+        nft list set inet vpn_policy ru6_dst \
+            >"${BACKUP_DIR}/ru6-set-before.txt"
+    fi
+
+    ip -br address show awg-backup \
+        >"${BACKUP_DIR}/awg-address-before.txt" 2>&1 || true
+
+    for state_file in \
+        /opt/tv-vpn-panel/devices.json \
+        /opt/tv-vpn-panel/remotes.json \
+        /opt/tv-vpn-panel/wireguard-clients.json
+    do
+        if [[ -f "$state_file" ]]; then
+            cp -a "$state_file" "$BACKUP_DIR/"
+        fi
+    done
+
+    systemctl is-active \
+        tv-vpn-panel.service \
+        awg-quick@awg-backup.service \
+        vpn-failover-v2.timer \
+        ru-prefix-update-raspberry.timer \
+        >"${BACKUP_DIR}/managed-units-before.txt" 2>&1 || true
 
     if [[ -n "$WG_CLIENT_IP" ]]; then
         wireguard_route \
@@ -547,6 +588,40 @@ backup_production_state() {
     fi
 
     log "Production state backup: $BACKUP_DIR"
+}
+
+verify_runtime_ownership() {
+    local current
+
+    current="${BACKUP_DIR}/table-${EXPECTED_WG_TABLE}-after.txt"
+    ip -4 route show table "$EXPECTED_WG_TABLE" >"$current"
+
+    cmp -s \
+        "${BACKUP_DIR}/table-${EXPECTED_WG_TABLE}-before.txt" \
+        "$current" ||
+        die "Panel restart changed selector table ${EXPECTED_WG_TABLE}"
+
+    ip -4 rule show >"${BACKUP_DIR}/ip-rule-after.txt"
+
+    if [[ -f "${BACKUP_DIR}/ru4-set-before.txt" ]]; then
+        nft list set inet vpn_policy ru4_dst \
+            >"${BACKUP_DIR}/ru4-set-after.txt"
+        nft list set inet vpn_policy ru6_dst \
+            >"${BACKUP_DIR}/ru6-set-after.txt"
+
+        cmp -s \
+            "${BACKUP_DIR}/ru4-set-before.txt" \
+            "${BACKUP_DIR}/ru4-set-after.txt" ||
+            die "Panel restart changed RU IPv4 set"
+        cmp -s \
+            "${BACKUP_DIR}/ru6-set-before.txt" \
+            "${BACKUP_DIR}/ru6-set-after.txt" ||
+            die "Panel restart changed RU IPv6 set"
+
+        grep -Eq '^9000:.*fwmark 0x5255.*lookup main' \
+            "${BACKUP_DIR}/ip-rule-after.txt" ||
+            die "RU DIRECT rule priority 9000 is missing"
+    fi
 }
 
 switch_release() {
@@ -619,8 +694,9 @@ activate_release() {
         "${BACKUP_DIR}/wg-route-after.txt" \
         "$WG_CLIENT_IP"
 
-    ip -4 rule show |
-        tee "${BACKUP_DIR}/ip-rule-after.txt"
+    verify_runtime_ownership
+
+    cat "${BACKUP_DIR}/ip-rule-after.txt"
 
     systemctl status "$SERVICE_NAME" \
         --no-pager \

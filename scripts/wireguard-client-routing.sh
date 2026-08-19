@@ -17,6 +17,12 @@ OVPN_GW="${TVVPN_OVPN_GW:-10.8.0.1}"
 VLESS_NET="${TVVPN_VLESS_NET:-172.19.0.0/30}"
 VLESS_DEV="${TVVPN_VLESS_DEV:-sbtun0}"
 
+AWG_NET="${TVVPN_AWG_NET:-10.203.0.0/30}"
+AWG_DEV="${TVVPN_AWG_DEV:-awg-backup}"
+AWG_ENDPOINT="${TVVPN_AWG_ENDPOINT:-45.128.60.154}"
+AWG_BIN="${TVVPN_AWG_BIN:-/usr/local/bin/awg}"
+LAN_GW="${TVVPN_LAN_GW:-192.168.1.1}"
+
 # Caddy publishes the internal services from this Docker network.  Docker
 # applies DNAT before policy routing, so every WireGuard backend table needs
 # an explicit route to the network instead of sending it to its VPN default.
@@ -24,6 +30,7 @@ CADDY_DOCKER_NETWORK="${TVVPN_CADDY_DOCKER_NETWORK:-vaultwarden_vw}"
 
 OPENVPN_TABLE="${TVVPN_OPENVPN_TABLE:-201}"
 VLESS_TABLE="${TVVPN_VLESS_TABLE:-202}"
+AWG_TABLE="${TVVPN_AWG_TABLE:-203}"
 
 # Приоритеты 31002–31254:
 # выше общего правила WireGuard 32765,
@@ -150,6 +157,40 @@ vless_is_healthy() {
         2>/dev/null |
         grep -q 'inet ' ||
         return 1
+}
+
+
+awg_is_healthy() {
+    local now
+    local latest
+
+    if is_true "$DRY_RUN"; then
+        is_true "${TVVPN_TEST_AWG_READY:-false}"
+        return
+    fi
+
+    systemctl is-active --quiet awg-quick@"${AWG_DEV}".service ||
+        return 1
+
+    ip -4 addr show dev "$AWG_DEV" \
+        2>/dev/null |
+        grep -q 'inet ' ||
+        return 1
+
+    [[ -x "$AWG_BIN" ]] ||
+        return 1
+
+    latest="$({
+        "$AWG_BIN" show "$AWG_DEV" latest-handshakes 2>/dev/null || true
+    } | awk '{ if ($2 > max) max = $2 } END { print max + 0 }')"
+
+    [[ "$latest" =~ ^[0-9]+$ ]] ||
+        return 1
+    [[ "$latest" -gt 0 ]] ||
+        return 1
+
+    now="$(date +%s)"
+    (( now - latest <= 180 ))
 }
 
 
@@ -305,6 +346,36 @@ prepare_vless_table() {
 }
 
 
+prepare_awg_table() {
+    flush_table "$AWG_TABLE"
+    add_common_routes "$AWG_TABLE"
+
+    run_cmd ip -4 route replace \
+        "${AWG_ENDPOINT}/32" \
+        via "$LAN_GW" \
+        dev "$LAN_DEV" \
+        table "$AWG_TABLE"
+
+    if awg_is_healthy; then
+        run_cmd ip -4 route replace \
+            "$AWG_NET" \
+            dev "$AWG_DEV" \
+            scope link \
+            table "$AWG_TABLE"
+
+        run_cmd ip -4 route replace \
+            default \
+            dev "$AWG_DEV" \
+            table "$AWG_TABLE"
+    else
+        run_cmd ip -4 route add \
+            unreachable default \
+            table "$AWG_TABLE" \
+            metric 42760
+    fi
+}
+
+
 prepare_forwarding_rules() {
     local egress
 
@@ -344,10 +415,11 @@ prepare_forwarding_rules() {
 prepare_tables() {
     log \
         "Preparing dedicated routing tables " \
-        "${OPENVPN_TABLE} and ${VLESS_TABLE}"
+        "${OPENVPN_TABLE}, ${VLESS_TABLE}, and ${AWG_TABLE}"
 
     prepare_openvpn_table
     prepare_vless_table
+    prepare_awg_table
     prepare_forwarding_rules
 }
 
@@ -449,7 +521,7 @@ set_mode() {
     local priority
 
     case "$mode" in
-        auto|direct|openvpn|vless)
+        auto|direct|openvpn|vless|backup)
             ;;
         *)
             die "Unknown mode: $mode"
@@ -498,6 +570,12 @@ set_mode() {
                 lookup "$VLESS_TABLE" \
                 priority "$priority"
             ;;
+        backup)
+            run_cmd ip -4 rule add \
+                from "${client_ip}/32" \
+                lookup "$AWG_TABLE" \
+                priority "$priority"
+            ;;
     esac
 
     run_cmd ip -4 route flush cache
@@ -510,7 +588,7 @@ usage() {
     cat <<'USAGE'
 Usage:
   wireguard-client-routing.sh prepare
-  wireguard-client-routing.sh set CLIENT_IP auto|direct|openvpn|vless
+  wireguard-client-routing.sh set CLIENT_IP auto|direct|openvpn|vless|backup
   wireguard-client-routing.sh clear CLIENT_IP
   wireguard-client-routing.sh status CLIENT_IP
 

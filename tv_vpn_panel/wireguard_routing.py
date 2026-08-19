@@ -15,6 +15,7 @@ VALID_MODES = {
     "direct",
     "openvpn",
     "vless",
+    "backup",
 }
 
 
@@ -197,6 +198,19 @@ def routing_mode_is_applied(
             and (
                 f" dev "
                 f"{settings.wireguard_vless_interface}"
+                in route_text
+            )
+        )
+
+    if routing_mode == "backup":
+        table = settings.wireguard_backup_table
+
+        return (
+            lookup == table
+            and f"table {table}" in route_text
+            and (
+                f" dev "
+                f"{settings.wireguard_backup_interface}"
                 in route_text
             )
         )

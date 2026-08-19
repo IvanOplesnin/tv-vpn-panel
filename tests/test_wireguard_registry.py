@@ -98,6 +98,14 @@ def test_wireguard_profile_partial_updates(
     assert profiles[0].name == "Bedroom tablet"
     assert profiles[0].routing_mode == "direct"
 
+    backup_updated = registry.upsert_wireguard_profile(
+        public_key="peer-key-one",
+        ip="10.10.0.6",
+        routing_mode="backup",
+    )
+
+    assert backup_updated.routing_mode == "backup"
+
 
 def test_wireguard_profile_validation(
     tmp_path,

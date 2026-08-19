@@ -175,8 +175,7 @@ function saveToken() {
   connectWs();
 }
 async function api(path, options={}) {
-  const url = token() ? `${path}?token=${encodeURIComponent(token())}` : path;
-  const res = await fetch(url, {...options, headers: {...authHeaders(), ...(options.headers || {})}});
+  const res = await fetch(path, {...options, headers: {...authHeaders(), ...(options.headers || {})}});
   if (!res.ok) throw new Error(await res.text());
   return await res.json();
 }
@@ -543,9 +542,12 @@ async function deleteRemote(remoteId) {
 function connectWs() {
   if (ws) ws.close();
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const q = token() ? `?token=${encodeURIComponent(token())}` : '';
-  ws = new WebSocket(`${proto}//${location.host}/ws${q}`);
-  ws.onopen = () => { document.getElementById('wsStatus').textContent = 'подключён'; document.getElementById('wsStatus').className = 'ws-ok'; };
+  ws = new WebSocket(`${proto}//${location.host}/ws`);
+  ws.onopen = () => {
+    ws.send(JSON.stringify({type: 'hello', token: token() || null}));
+    document.getElementById('wsStatus').textContent = 'подключён';
+    document.getElementById('wsStatus').className = 'ws-ok';
+  };
   ws.onclose = () => { document.getElementById('wsStatus').textContent = 'не подключён'; document.getElementById('wsStatus').className = 'ws-bad'; setTimeout(connectWs, 3000); };
   ws.onerror = () => { document.getElementById('wsStatus').textContent = 'ошибка'; document.getElementById('wsStatus').className = 'ws-bad'; };
   ws.onmessage = (event) => {

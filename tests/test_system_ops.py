@@ -47,6 +47,32 @@ def test_backend_state_detects_sing_box(monkeypatch):
     assert state.default_route == "default dev sbtun0 scope link"
 
 
+def test_backend_state_detects_amneziawg(monkeypatch):
+    from tv_vpn_panel import system_ops
+
+    monkeypatch.setattr(
+        system_ops,
+        "route_table_text",
+        lambda: "default dev awg-backup scope link",
+    )
+    monkeypatch.setattr(
+        system_ops,
+        "settings",
+        SimpleNamespace(
+            table_id="200",
+            wireguard_openvpn_interface="tun0",
+            wireguard_vless_interface="sbtun0",
+            wireguard_backup_interface="awg-backup",
+        ),
+    )
+
+    state = system_ops.get_backend_state()
+
+    assert state.active == "amneziawg"
+    assert state.ok is True
+    assert state.table_has_default is True
+
+
 def test_vpn_interface_state_reports_second_vpn(monkeypatch):
     from tv_vpn_panel import system_ops
 

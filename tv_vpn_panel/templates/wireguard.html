@@ -256,12 +256,8 @@ function saveToken() {
 }
 
 async function api(path, options={}) {
-  const query = token()
-    ? `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token())}`
-    : path;
-
   const response = await fetch(
-    query,
+    path,
     {
       ...options,
       headers: {
@@ -376,6 +372,7 @@ function modeLabel(mode) {
     direct: 'Без VPN — eth0',
     openvpn: 'OpenVPN — tun0',
     vless: 'VLESS — sbtun0',
+    backup: 'Backup — awg-backup',
   }[mode] || mode;
 }
 
@@ -385,6 +382,7 @@ function modeOptions(selectedMode) {
     ['direct', 'Без VPN — напрямую через eth0'],
     ['openvpn', 'OpenVPN — закрепить за tun0'],
     ['vless', 'VLESS — закрепить за sbtun0'],
+    ['backup', 'Backup — закрепить за awg-backup'],
   ].map(
     ([value, label]) => (
       `<option value="${value}" ${value === selectedMode ? 'selected' : ''}>`
