@@ -17,10 +17,11 @@ OVPN_GW="${TVVPN_OVPN_GW:-10.8.0.1}"
 VLESS_NET="${TVVPN_VLESS_NET:-172.19.0.0/30}"
 VLESS_DEV="${TVVPN_VLESS_DEV:-sbtun0}"
 
-AWG_NET="${TVVPN_AWG_NET:-10.203.0.0/30}"
-AWG_DEV="${TVVPN_AWG_DEV:-awg-backup}"
-AWG_ENDPOINT="${TVVPN_AWG_ENDPOINT:-45.128.60.154}"
-AWG_BIN="${TVVPN_AWG_BIN:-/usr/local/bin/awg}"
+BACKUP_DEV="${TVVPN_BACKUP_DEV:-tun203}"
+BACKUP_LOCAL="${TVVPN_BACKUP_LOCAL:-10.204.0.2}"
+BACKUP_PEER="${TVVPN_BACKUP_PEER:-10.204.0.1}"
+BACKUP_ENDPOINT="${TVVPN_BACKUP_ENDPOINT:-45.128.60.154}"
+BACKUP_SERVICE="${TVVPN_BACKUP_SERVICE:-vpn-ssh-tun-client.service}"
 LAN_GW="${TVVPN_LAN_GW:-192.168.1.1}"
 
 # Caddy publishes the internal services from this Docker network.  Docker
@@ -30,7 +31,7 @@ CADDY_DOCKER_NETWORK="${TVVPN_CADDY_DOCKER_NETWORK:-vaultwarden_vw}"
 
 OPENVPN_TABLE="${TVVPN_OPENVPN_TABLE:-201}"
 VLESS_TABLE="${TVVPN_VLESS_TABLE:-202}"
-AWG_TABLE="${TVVPN_AWG_TABLE:-203}"
+BACKUP_TABLE="${TVVPN_BACKUP_TABLE:-${TVVPN_AWG_TABLE:-203}}"
 
 # Приоритеты 31002–31254:
 # выше общего правила WireGuard 32765,
@@ -160,37 +161,30 @@ vless_is_healthy() {
 }
 
 
-awg_is_healthy() {
-    local now
-    local latest
-
+backup_is_healthy() {
     if is_true "$DRY_RUN"; then
-        is_true "${TVVPN_TEST_AWG_READY:-false}"
+        is_true "${TVVPN_TEST_BACKUP_READY:-false}"
         return
     fi
 
-    systemctl is-active --quiet awg-quick@"${AWG_DEV}".service ||
+    systemctl is-active --quiet "$BACKUP_SERVICE" ||
         return 1
 
-    ip -4 addr show dev "$AWG_DEV" \
+    ip -4 addr show dev "$BACKUP_DEV" \
         2>/dev/null |
-        grep -q 'inet ' ||
+        grep -q "inet ${BACKUP_LOCAL} peer ${BACKUP_PEER}" ||
         return 1
 
-    [[ -x "$AWG_BIN" ]] ||
+    ip -4 route show table "$BACKUP_TABLE" default |
+        grep -Eq "^default dev ${BACKUP_DEV}([[:space:]]|$)" ||
         return 1
 
-    latest="$({
-        "$AWG_BIN" show "$AWG_DEV" latest-handshakes 2>/dev/null || true
-    } | awk '{ if ($2 > max) max = $2 } END { print max + 0 }')"
-
-    [[ "$latest" =~ ^[0-9]+$ ]] ||
-        return 1
-    [[ "$latest" -gt 0 ]] ||
+    ping -I "$BACKUP_LOCAL" -c 2 -W 2 "$BACKUP_PEER" \
+        >/dev/null 2>&1 ||
         return 1
 
-    now="$(date +%s)"
-    (( now - latest <= 180 ))
+    ping -I "$BACKUP_LOCAL" -c 2 -W 2 "$BACKEND_CHECK_IP" \
+        >/dev/null 2>&1
 }
 
 
@@ -346,32 +340,40 @@ prepare_vless_table() {
 }
 
 
-prepare_awg_table() {
-    flush_table "$AWG_TABLE"
-    add_common_routes "$AWG_TABLE"
+prepare_backup_table() {
+    local backup_ready=0
+
+    if backup_is_healthy; then
+        backup_ready=1
+    fi
+
+    # Install the kill switch first.  Using replace with the same default
+    # prefix avoids an empty-table window in which a pinned client could
+    # fall through to the main routing table.
+    run_cmd ip -4 route replace \
+        unreachable default \
+        table "$BACKUP_TABLE"
+
+    add_common_routes "$BACKUP_TABLE"
 
     run_cmd ip -4 route replace \
-        "${AWG_ENDPOINT}/32" \
+        "${BACKUP_ENDPOINT}/32" \
         via "$LAN_GW" \
         dev "$LAN_DEV" \
-        table "$AWG_TABLE"
+        table "$BACKUP_TABLE"
 
-    if awg_is_healthy; then
+    if [[ "$backup_ready" -eq 1 ]]; then
         run_cmd ip -4 route replace \
-            "$AWG_NET" \
-            dev "$AWG_DEV" \
+            "${BACKUP_PEER}/32" \
+            dev "$BACKUP_DEV" \
             scope link \
-            table "$AWG_TABLE"
+            src "$BACKUP_LOCAL" \
+            table "$BACKUP_TABLE"
 
         run_cmd ip -4 route replace \
             default \
-            dev "$AWG_DEV" \
-            table "$AWG_TABLE"
-    else
-        run_cmd ip -4 route add \
-            unreachable default \
-            table "$AWG_TABLE" \
-            metric 42760
+            dev "$BACKUP_DEV" \
+            table "$BACKUP_TABLE"
     fi
 }
 
@@ -415,11 +417,11 @@ prepare_forwarding_rules() {
 prepare_tables() {
     log \
         "Preparing dedicated routing tables " \
-        "${OPENVPN_TABLE}, ${VLESS_TABLE}, and ${AWG_TABLE}"
+        "${OPENVPN_TABLE}, ${VLESS_TABLE}, and ${BACKUP_TABLE}"
 
     prepare_openvpn_table
     prepare_vless_table
-    prepare_awg_table
+    prepare_backup_table
     prepare_forwarding_rules
 }
 
@@ -573,7 +575,7 @@ set_mode() {
         backup)
             run_cmd ip -4 rule add \
                 from "${client_ip}/32" \
-                lookup "$AWG_TABLE" \
+                lookup "$BACKUP_TABLE" \
                 priority "$priority"
             ;;
     esac

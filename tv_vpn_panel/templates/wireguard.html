@@ -372,7 +372,7 @@ function modeLabel(mode) {
     direct: 'Без VPN — eth0',
     openvpn: 'OpenVPN — tun0',
     vless: 'VLESS — sbtun0',
-    backup: 'Backup — awg-backup',
+    backup: 'Backup — SSH TUN (tun203)',
   }[mode] || mode;
 }
 
@@ -382,7 +382,7 @@ function modeOptions(selectedMode) {
     ['direct', 'Без VPN — напрямую через eth0'],
     ['openvpn', 'OpenVPN — закрепить за tun0'],
     ['vless', 'VLESS — закрепить за sbtun0'],
-    ['backup', 'Backup — закрепить за awg-backup'],
+    ['backup', 'Backup — закрепить за SSH TUN (tun203)'],
   ].map(
     ([value, label]) => (
       `<option value="${value}" ${value === selectedMode ? 'selected' : ''}>`

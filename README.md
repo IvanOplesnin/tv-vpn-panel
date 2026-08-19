@@ -15,7 +15,7 @@ TV VPN Panel — управляющий сервис на FastAPI для policy 
 - диагностика <code>tun0</code>, <code>sbtun0</code>, правил и маршрутов;
 - просмотр WireGuard-клиентов, handshake и переданного трафика;
 - именование WireGuard-клиентов и синхронизация имён из <code>wg0.conf</code>;
-- режимы WireGuard-маршрутизации: <code>auto</code>, <code>direct</code>, <code>openvpn</code>, <code>vless</code> и <code>backup</code> (AmneziaWG/table 203);
+- режимы WireGuard-маршрутизации: <code>auto</code>, <code>direct</code>, <code>openvpn</code>, <code>vless</code> и <code>backup</code> (SSH TUN/table 203);
 - безопасное обновление с тестами, smoke-check и автоматическим rollback.
 
 ## Архитектура
@@ -45,7 +45,7 @@ TV VPN Panel — управляющий сервис на FastAPI для policy 
 | <code>tv_vpn_panel/wireguard_status.py</code> | Чтение <code>wg show TVVPN_WG_DEV dump</code>, handshake, трафик и route probe |
 | <code>tv_vpn_panel/wireguard_registry.py</code> | Имена и желаемые режимы WireGuard-клиентов |
 | <code>tv_vpn_panel/wireguard_routing.py</code> | Применение и проверка режима WireGuard-клиента |
-| <code>scripts/wireguard-client-routing.sh</code> | Таблицы 201/202/203, индивидуальные rules и kill switch; AWG NAT/forwarding принадлежат отдельному nft/systemd baseline |
+| <code>scripts/wireguard-client-routing.sh</code> | Таблицы 201/202/203, индивидуальные rules и kill switch; SSH TUN NAT/forwarding принадлежат отдельному nft/systemd baseline |
 | <code>tv_vpn_panel/ws.py</code> | Активные WebSocket-подключения и broadcast |
 
 Приложение не поднимает VPN-туннели и не заменяет dnsmasq, OpenVPN, sing-box или WireGuard. Оно является control plane поверх уже настроенной сети хоста.
@@ -98,6 +98,7 @@ Routing table 200 должна обслуживаться существующе
 | <code>direct</code> | <code>lookup main</code> | Прямой выход через LAN-интерфейс |
 | <code>openvpn</code> | <code>lookup 201</code> | Только OpenVPN; при недоступном backend действует unreachable kill switch |
 | <code>vless</code> | <code>lookup 202</code> | Только sing-box/VLESS; при недоступном backend действует unreachable kill switch |
+| <code>backup</code> | <code>lookup 203</code> | Только SSH TUN; при недоступном backend действует unreachable kill switch |
 
 Приоритет индивидуального правила равен <code>TVVPN_WG_PRIORITY_BASE + последний октет IP</code>, по умолчанию диапазон начинается с 31000.
 
@@ -965,6 +966,8 @@ Hello:
 | <code>TVVPN_LAN_DEV</code> | <code>eth0</code> | Direct-интерфейс |
 | <code>TVVPN_OVPN_DEV</code> | <code>tun0</code> | OpenVPN-интерфейс |
 | <code>TVVPN_VLESS_DEV</code> | <code>sbtun0</code> | sing-box/VLESS-интерфейс |
+| <code>TVVPN_BACKUP_TABLE</code> | <code>203</code> | Выделенная SSH TUN table |
+| <code>TVVPN_BACKUP_DEV</code> | <code>tun203</code> | SSH TUN backup-интерфейс |
 | <code>TVVPN_API_TOKEN</code> | пусто | Token HTTP API и WebSocket |
 | <code>TVVPN_POLL_INTERVAL</code> | <code>10</code> | Период sync/broadcast в секундах |
 | <code>TVVPN_ENABLE_PERIODIC_SYNC</code> | <code>true</code> | Фоновая синхронизация |

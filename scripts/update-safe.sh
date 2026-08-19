@@ -562,8 +562,8 @@ backup_production_state() {
             >"${BACKUP_DIR}/ru6-set-before.txt"
     fi
 
-    ip -br address show awg-backup \
-        >"${BACKUP_DIR}/awg-address-before.txt" 2>&1 || true
+    ip -br address show tun203 \
+        >"${BACKUP_DIR}/ssh-tun-address-before.txt" 2>&1 || true
 
     for state_file in \
         /opt/tv-vpn-panel/devices.json \
@@ -577,7 +577,7 @@ backup_production_state() {
 
     systemctl is-active \
         tv-vpn-panel.service \
-        awg-quick@awg-backup.service \
+        vpn-ssh-tun-client.service \
         vpn-failover-v2.timer \
         ru-prefix-update-raspberry.timer \
         >"${BACKUP_DIR}/managed-units-before.txt" 2>&1 || true

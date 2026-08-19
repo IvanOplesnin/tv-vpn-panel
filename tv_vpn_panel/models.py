@@ -5,7 +5,14 @@ from pydantic import BaseModel, Field
 from typing import Literal
 
 
-BackendName = Literal["openvpn", "sing-box", "amneziawg", "none", "unknown"]
+BackendName = Literal[
+    "openvpn",
+    "sing-box",
+    "ssh-tun",
+    "amneziawg",
+    "none",
+    "unknown",
+]
 
 
 class DeviceType(str, Enum):

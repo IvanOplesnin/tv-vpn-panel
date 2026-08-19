@@ -29,7 +29,7 @@ def configure(
             wireguard_direct_interface="eth0",
             wireguard_openvpn_interface="tun0",
             wireguard_vless_interface="sbtun0",
-            wireguard_backup_interface="awg-backup",
+            wireguard_backup_interface="tun203",
         ),
     )
 
@@ -99,7 +99,7 @@ def test_pinned_backends_applied(
         True,
         (
             "8.8.8.8 from 10.10.0.6 "
-            "dev awg-backup table 203"
+            "dev tun203 table 203"
         ),
         (
             "31006: from 10.10.0.6 "

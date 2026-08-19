@@ -23,7 +23,7 @@ def run_script(
             "TVVPN_PROTECTED_WG_CLIENT": "10.10.0.5",
             "TVVPN_TEST_TUN0_READY": "false",
             "TVVPN_TEST_SBTUN0_READY": "false",
-            "TVVPN_TEST_AWG_READY": "false",
+            "TVVPN_TEST_BACKUP_READY": "false",
         }
     )
 
@@ -66,9 +66,12 @@ def test_direct_mode_uses_main_table():
     )
 
     assert (
-        "ip -4 route flush table 203"
+        "ip -4 route replace unreachable default "
+        "table 203"
         in result.stdout
     )
+
+    assert "ip -4 route flush table 203" not in result.stdout
 
     # Автоматическая table 200 не должна
     # очищаться или перестраиваться.
@@ -151,6 +154,12 @@ def test_unavailable_backends_use_kill_switch():
         in result.stdout
     )
 
+    assert (
+        "ip -4 route replace unreachable default "
+        "table 203"
+        in result.stdout
+    )
+
 
 def test_ready_backends_install_defaults():
     environment = os.environ.copy()
@@ -160,7 +169,7 @@ def test_ready_backends_install_defaults():
             "TVVPN_PROTECTED_WG_CLIENT": "10.10.0.5",
             "TVVPN_TEST_TUN0_READY": "true",
             "TVVPN_TEST_SBTUN0_READY": "true",
-            "TVVPN_TEST_AWG_READY": "true",
+            "TVVPN_TEST_BACKUP_READY": "true",
         }
     )
 
@@ -197,7 +206,7 @@ def test_ready_backends_install_defaults():
 
     assert (
         "ip -4 route replace default "
-        "dev awg-backup table 203"
+        "dev tun203 table 203"
         in result.stdout
     )
 
@@ -210,7 +219,7 @@ def test_client_is_not_protected_by_default():
             "TVVPN_WG_ROUTING_DRY_RUN": "true",
             "TVVPN_TEST_TUN0_READY": "false",
             "TVVPN_TEST_SBTUN0_READY": "false",
-            "TVVPN_TEST_AWG_READY": "false",
+            "TVVPN_TEST_BACKUP_READY": "false",
         }
     )
 

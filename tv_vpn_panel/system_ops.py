@@ -11,7 +11,7 @@ def vpn_interface_names() -> tuple[str, str, str]:
     return (
         getattr(settings, "wireguard_openvpn_interface", "tun0"),
         getattr(settings, "wireguard_vless_interface", "sbtun0"),
-        getattr(settings, "wireguard_backup_interface", "awg-backup"),
+        getattr(settings, "wireguard_backup_interface", "tun203"),
     )
 
 
@@ -177,20 +177,20 @@ def get_backend_state() -> BackendState:
 
     openvpn_interface = getattr(settings, "wireguard_openvpn_interface", "tun0")
     vless_interface = getattr(settings, "wireguard_vless_interface", "sbtun0")
-    backup_interface = getattr(settings, "wireguard_backup_interface", "awg-backup")
+    backup_interface = getattr(settings, "wireguard_backup_interface", "tun203")
 
     if f" dev {openvpn_interface}" in default_route or " via 10.8.0.1" in default_route:
         active = "openvpn"
     elif f" dev {vless_interface}" in default_route:
         active = "sing-box"
     elif f" dev {backup_interface}" in default_route:
-        active = "amneziawg"
+        active = "ssh-tun"
     else:
         active = "unknown"
 
     return BackendState(
         active=active,
-        ok=active in {"openvpn", "sing-box", "amneziawg"},
+        ok=active in {"openvpn", "sing-box", "ssh-tun"},
         table_id=settings.table_id,
         table_has_default=True,
         default_route=default_route,
