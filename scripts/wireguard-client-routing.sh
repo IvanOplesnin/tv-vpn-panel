@@ -373,6 +373,7 @@ prepare_backup_table() {
         run_cmd ip -4 route replace \
             default \
             dev "$BACKUP_DEV" \
+            src "$BACKUP_LOCAL" \
             table "$BACKUP_TABLE"
     fi
 }

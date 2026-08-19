@@ -206,7 +206,7 @@ def test_ready_backends_install_defaults():
 
     assert (
         "ip -4 route replace default "
-        "dev tun203 table 203"
+        "dev tun203 src 10.204.0.2 table 203"
         in result.stdout
     )
 
