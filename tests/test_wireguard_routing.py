@@ -93,6 +93,33 @@ def test_pinned_backends_applied(
         ),
     )
 
+
+def test_backup_alias_is_equivalent_to_numeric_table(
+    monkeypatch,
+):
+    routing = configure(monkeypatch)
+
+    monkeypatch.setattr(
+        routing,
+        "_table_identifiers",
+        lambda table: {"203", "awg_backup"}
+        if table == "203" else {table},
+    )
+
+    assert routing.routing_mode_is_applied(
+        "10.10.0.8",
+        "backup",
+        True,
+        (
+            "8.8.8.8 from 10.10.0.8 "
+            "dev tun203 table awg_backup"
+        ),
+        (
+            "31008: from 10.10.0.8 "
+            "lookup awg_backup\n"
+        ),
+    )
+
     assert routing.routing_mode_is_applied(
         "10.10.0.6",
         "backup",

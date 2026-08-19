@@ -3,6 +3,7 @@ from __future__ import annotations
 import ipaddress
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .config import settings
 from .models import WireGuardRoutingMode
@@ -138,6 +139,52 @@ def probe_wireguard_route(
     )
 
 
+def _table_identifiers(table: str) -> set[str]:
+    """Return the numeric ID and any locally registered names for a table."""
+    identifiers = {str(table)}
+    paths = [
+        Path("/etc/iproute2/rt_tables"),
+        *sorted(Path("/etc/iproute2/rt_tables.d").glob("*")),
+    ]
+
+    for path in paths:
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+
+        for raw_line in lines:
+            line = raw_line.split("#", 1)[0].strip()
+            parts = line.split()
+            if len(parts) != 2 or not parts[0].isdigit():
+                continue
+
+            table_id, table_name = parts
+            if table_id in identifiers:
+                identifiers.add(table_name)
+            elif table_name in identifiers:
+                identifiers.add(table_id)
+
+    return identifiers
+
+
+def _table_matches(
+    observed: str | None,
+    expected: str,
+) -> bool:
+    return observed is not None and observed in _table_identifiers(expected)
+
+
+def _route_uses_table(
+    route_text: str,
+    expected: str,
+) -> bool:
+    return any(
+        f"table {identifier}" in route_text
+        for identifier in _table_identifiers(expected)
+    )
+
+
 def routing_mode_is_applied(
     client_ip: str | None,
     routing_mode: WireGuardRoutingMode,
@@ -160,10 +207,7 @@ def routing_mode_is_applied(
     if routing_mode == "auto":
         return (
             lookup is None
-            and (
-                f"table {settings.table_id}"
-                in route_text
-            )
+            and _route_uses_table(route_text, settings.table_id)
         )
 
     if routing_mode == "direct":
@@ -180,8 +224,8 @@ def routing_mode_is_applied(
         table = settings.wireguard_openvpn_table
 
         return (
-            lookup == table
-            and f"table {table}" in route_text
+            _table_matches(lookup, table)
+            and _route_uses_table(route_text, table)
             and (
                 f" dev "
                 f"{settings.wireguard_openvpn_interface}"
@@ -193,8 +237,8 @@ def routing_mode_is_applied(
         table = settings.wireguard_vless_table
 
         return (
-            lookup == table
-            and f"table {table}" in route_text
+            _table_matches(lookup, table)
+            and _route_uses_table(route_text, table)
             and (
                 f" dev "
                 f"{settings.wireguard_vless_interface}"
@@ -206,8 +250,8 @@ def routing_mode_is_applied(
         table = settings.wireguard_backup_table
 
         return (
-            lookup == table
-            and f"table {table}" in route_text
+            _table_matches(lookup, table)
+            and _route_uses_table(route_text, table)
             and (
                 f" dev "
                 f"{settings.wireguard_backup_interface}"
